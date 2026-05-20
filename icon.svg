@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Pozadí: zaoblený čtverec v Kladno modré -->
+  <rect width="512" height="512" rx="96" fill="#003d82"/>
+
+  <!-- Štít — symbol bezpečnosti -->
+  <path d="M 256 80
+           L 400 130
+           L 400 270
+           Q 400 380 256 440
+           Q 112 380 112 270
+           L 112 130
+           Z"
+        fill="#ffffff"
+        stroke="#ffffff"
+        stroke-width="0"/>
+
+  <!-- Kladno navy uvnitř štítu -->
+  <path d="M 256 110
+           L 376 152
+           L 376 270
+           Q 376 360 256 412
+           Q 136 360 136 270
+           L 136 152
+           Z"
+        fill="#003d82"/>
+
+  <!-- Bílá fajfka (checkmark) uprostřed -->
+  <path d="M 175 260
+           L 235 320
+           L 345 200"
+        fill="none"
+        stroke="#ffffff"
+        stroke-width="32"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+</svg>

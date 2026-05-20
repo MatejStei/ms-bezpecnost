@@ -1,0 +1,1230 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Školní bezpečnost</title>
+
+  <!-- PWA — aplikace lze "nainstalovat" na plochu tabletu/počítače -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#003d82">
+
+  <!-- Ikony pro různé platformy -->
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+
+  <!-- iOS Safari — lepší zobrazení po přidání na plochu -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Školní bezpečnost">
+
+  <!-- Microsoft Authentication Library (MSAL.js) — zajišťuje přihlášení přes Microsoft.
+       Knihovnu hostuje Microsoft na oficiálním CDN. -->
+  <script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
+
+  <!-- Config — vyplň své hodnoty (clientId a tenantId) v souboru config.js -->
+  <script src="config.js"></script>
+
+  <style>
+    /* =======================================================================
+       Školní bezpečnost — dashboard pro EDU tenant
+       Fáze 1: UI kostra s i18n (CZ/EN), bez MSAL, bez Graphu.
+       ======================================================================= */
+
+    :root {
+      /* Barevná paleta inspirovaná Rytíři Kladno — navy blue + white */
+      --bg: #f4f7fb;           /* jemný modro-šedý podklad */
+      --panel: #ffffff;        /* bílé karty */
+      --border: #d6e0ec;       /* jemná modravá čára */
+      --text: #0f1f3a;         /* tmavě navy místo čisté černé */
+      --text-muted: #5a6b82;   /* tlumená modro-šedá */
+      --accent: #003d82;       /* Kladno navy */
+      --accent-hover: #002b5c; /* tmavší navy pro hover */
+      --accent-light: #e8f0fa; /* světlý modrý hover podklad */
+      --critical: #dc2626;
+      --warning: #f59e0b;
+      --info: #0891b2;
+      --ok: #16a34a;
+      --shadow: 0 1px 2px rgba(10, 30, 70, 0.04), 0 2px 8px rgba(10, 30, 70, 0.04);
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* --- Layout: sidebar + main --- */
+    .app {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      min-height: 100vh;
+    }
+
+    /* --- Sidebar --- */
+    .sidebar {
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .brand {
+      background: var(--accent);
+      color: white;
+      padding: 20px;
+    }
+    .brand h1 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 600;
+      color: white;
+    }
+    .brand .subtitle {
+      margin: 4px 0 0;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.75);
+    }
+
+    .nav { padding: 12px 0; flex: 1; }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;       /* větší pro dotyk */
+      cursor: pointer;
+      border-left: 3px solid transparent;
+      user-select: none;
+      color: var(--text);
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+    .nav-item:hover { background: var(--accent-light); }
+    .nav-item.active {
+      background: var(--accent-light);
+      border-left-color: var(--accent);
+      font-weight: 500;
+      color: var(--accent);
+    }
+    .nav-item .count {
+      background: var(--border);
+      color: var(--text-muted);
+      border-radius: 10px;
+      padding: 1px 8px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .nav-item.active .count {
+      background: var(--accent);
+      color: white;
+    }
+
+    .sidebar-footer {
+      padding: 16px 20px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* --- Main panel --- */
+    .main {
+      padding: 24px 32px;
+      overflow-y: auto;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .topbar h2 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 600;
+    }
+    .topbar .actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    /* --- Buttons --- */
+    .btn {
+      border: 1px solid var(--border);
+      background: var(--panel);
+      padding: 9px 16px;       /* větší pro dotyk — min 44px tap target */
+      min-height: 40px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      color: var(--text);
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+    .btn:hover {
+      background: var(--accent-light);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .btn.primary {
+      background: var(--accent);
+      color: white;
+      border-color: var(--accent);
+    }
+    .btn.primary:hover { background: var(--accent-hover); }
+    .btn.primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* --- Login card (shown when not authenticated) --- */
+    .login-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 40px;
+      max-width: 500px;
+      margin: 60px auto;
+      box-shadow: var(--shadow);
+      text-align: center;
+    }
+    .login-card h3 {
+      margin: 0 0 12px;
+      font-size: 18px;
+    }
+    .login-card p {
+      color: var(--text-muted);
+      margin: 0 0 24px;
+    }
+
+    /* --- KPI cards --- */
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .kpi {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      border-top: 3px solid var(--accent);
+    }
+    .kpi .label {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .kpi .value {
+      font-size: 28px;
+      font-weight: 600;
+      margin-top: 4px;
+      color: var(--accent);
+    }
+    .kpi.critical {
+      border-top-color: var(--critical);
+    }
+    .kpi.critical .value { color: var(--critical); }
+    .kpi.warning {
+      border-top-color: var(--warning);
+    }
+    .kpi.warning .value { color: var(--warning); }
+    .kpi.ok {
+      border-top-color: var(--ok);
+    }
+    .kpi.ok .value { color: var(--ok); }
+
+    /* --- Findings table --- */
+    .findings {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .findings-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .findings-header h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .filter-bar {
+      display: flex;
+      gap: 8px;
+    }
+    .filter-bar select, .filter-bar input {
+      border: 1px solid var(--border);
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      background: var(--panel);
+    }
+
+    .finding-row {
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: 100px 1fr auto;
+      gap: 12px;
+      align-items: center;
+    }
+    .finding-row:last-child { border-bottom: none; }
+    .finding-row:hover { background: var(--accent-light); }
+
+    .severity {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .severity.critical { background: #fee2e2; color: var(--critical); }
+    .severity.warning { background: #fef3c7; color: #b45309; }
+    .severity.info { background: #cffafe; color: var(--info); }
+
+    .finding-msg {
+      font-size: 13px;
+    }
+    .finding-msg .detail {
+      color: var(--text-muted);
+      font-size: 12px;
+      margin-top: 2px;
+    }
+    .finding-time {
+      font-size: 11px;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .empty-state {
+      padding: 40px;
+      text-align: center;
+      color: var(--text-muted);
+    }
+    .empty-state .icon { font-size: 32px; margin-bottom: 8px; }
+
+    /* --- Language switcher --- */
+    .lang-switch {
+      display: inline-flex;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      overflow: hidden;
+      font-size: 12px;
+    }
+    .lang-switch button {
+      border: none;
+      background: var(--panel);
+      padding: 5px 10px;
+      cursor: pointer;
+      color: var(--text-muted);
+    }
+    .lang-switch button.active {
+      background: var(--accent);
+      color: white;
+    }
+
+    /* --- Mobile menu toggle (tlačítko vlevo nahoře, viditelné jen na malých obrazovkách) --- */
+    .menu-toggle {
+      display: none;
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 0;
+      width: 44px;
+      height: 44px;
+      border-radius: 6px;
+      cursor: pointer;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .menu-toggle:active { background: var(--accent-hover); }
+
+    /* --- Backdrop pod sidebarem na mobilu --- */
+    .backdrop {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(15, 31, 58, 0.4);
+      z-index: 100;
+    }
+    .backdrop.show { display: block; }
+
+    /* --- Filtr bar — větší pro dotyk --- */
+    .filter-bar select, .filter-bar input {
+      min-height: 36px;
+    }
+
+    /* --- Responsive --- */
+    @media (max-width: 1024px) {
+      /* Tablet — sidebar je skrytý, otevírá se tlačítkem */
+      .app { grid-template-columns: 1fr; }
+      .sidebar {
+        position: fixed;
+        top: 0; left: 0;
+        height: 100vh;
+        width: 280px;
+        z-index: 101;
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        box-shadow: 0 0 20px rgba(0,0,0,0.15);
+      }
+      .sidebar.open { transform: translateX(0); }
+      .menu-toggle { display: inline-flex; }
+      .main { padding: 16px 20px; }
+    }
+
+    @media (max-width: 480px) {
+      /* Mobil — kompaktnější padding */
+      .main { padding: 12px; }
+      .topbar h2 { font-size: 17px; }
+      .kpis { grid-template-columns: repeat(2, 1fr); }
+      .kpi { padding: 12px; }
+      .kpi .value { font-size: 22px; }
+      .finding-row {
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
+    }
+
+    /* --- Tenant picker (jen v multi-tenant režimu) --- */
+    .tenant-picker {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 10px 0 12px;
+      background: var(--accent-light);
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      min-height: 40px;
+    }
+    .tenant-picker .tenant-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+    .tenant-picker select {
+      border: none;
+      background: transparent;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--accent);
+      cursor: pointer;
+      padding: 8px 4px;
+      min-height: 38px;
+    }
+    .tenant-picker select:focus { outline: none; }
+
+    /* --- Privacy banner na patičce --- */
+    .privacy-note {
+      margin-top: 24px;
+      padding: 12px 16px;
+      background: var(--accent-light);
+      border-left: 3px solid var(--accent);
+      border-radius: 4px;
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+    .privacy-note strong { color: var(--accent); }
+  </style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Backdrop pro mobilní menu — kliknutí zavře sidebar -->
+  <div class="backdrop" id="backdrop"></div>
+
+  <!-- ======================== SIDEBAR ======================== -->
+  <aside class="sidebar">
+    <div class="brand">
+      <h1 data-i18n="app.title">Školní bezpečnost</h1>
+      <p class="subtitle" data-i18n="app.subtitle">Dashboard pro EDU tenant</p>
+    </div>
+
+    <nav class="nav" id="nav">
+      <!-- Naplní se JS -->
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="lang-switch">
+        <button data-lang="cs" class="active">CS</button>
+        <button data-lang="en">EN</button>
+      </div>
+      <div style="margin-top: 10px;" id="tenant-info" data-i18n="app.notConnected">
+        Nepřipojeno
+      </div>
+    </div>
+  </aside>
+
+  <!-- ======================== MAIN ======================== -->
+  <main class="main" id="main">
+    <!-- Naplní se JS -->
+  </main>
+
+</div>
+
+<script>
+/* ==========================================================================
+   1) INTERNACIONALIZACE (i18n)
+
+   Jednoduchý překladový systém. Texty mají klíče ("dashboard.title"),
+   v HTML používáš atribut data-i18n="nazev.klice".
+   Funkce t(key) vrátí přeložený řetězec podle aktuálního jazyka.
+   ========================================================================== */
+
+const translations = {
+  cs: {
+    "app.title": "Školní bezpečnost",
+    "app.subtitle": "Dashboard pro EDU tenant",
+    "app.notConnected": "Nepřipojeno",
+    "app.connectedAs": "Přihlášen: {name}",
+    "login.heading": "Přihlaste se k vašemu školnímu tenantu",
+    "login.description": "Pro zobrazení bezpečnostních poznatků se přihlaste pracovním účtem s příslušnými právy.",
+    "login.button": "Přihlásit se přes Microsoft",
+    "login.buttonSignOut": "Odhlásit",
+    "login.disabled": "Config ještě není vyplněný — viz NAVOD-ENTRA-APP.md",
+    "auth.configMissing": "Nejdřív vyplň clientId a tenantId v config.js. Viz NAVOD-ENTRA-APP.md.",
+    "auth.loginFailed": "Přihlášení se nezdařilo:",
+    "auth.signedInAs": "Přihlášen:",
+
+    "nav.overview": "Přehled",
+    "nav.threats": "Hrozby (Defender)",
+    "nav.identity": "Identita",
+    "nav.mail": "Pošta",
+    "nav.apps": "Aplikace",
+    "nav.guests": "Hosté",
+    "nav.devices": "Zařízení",
+
+    "kpi.critical": "Kritické",
+    "kpi.warnings": "Varování",
+    "kpi.info": "Informativní",
+    "kpi.lastRun": "Poslední běh",
+
+    "findings.title": "Zjištění",
+    "findings.filter.all": "Všechny závažnosti",
+    "findings.filter.critical": "Kritické",
+    "findings.filter.warning": "Varování",
+    "findings.filter.info": "Informativní",
+    "findings.search": "Hledat…",
+    "findings.empty": "Žádné nálezy — vše vypadá dobře",
+    "findings.exportCsv": "Export CSV",
+    "findings.refresh": "Obnovit",
+
+    "severity.critical": "Kritické",
+    "severity.warning": "Varování",
+    "severity.info": "Info",
+
+    "overview.heading": "Přehled bezpečnosti",
+    "overview.description": "Souhrn všech zjištění napříč kategoriemi.",
+
+    "footer.demo": "Demo režim — zobrazují se ukázková data",
+    "install.button": "Nainstalovat",
+    "install.title": "Nainstalovat aplikaci na plochu",
+    "menu.open": "Otevřít menu",
+    "privacy.title": "Soukromí dat",
+    "privacy.body": "Vaše data nikdy neopouštějí prohlížeč. Aplikace mluví přímo s Microsoftem, nemá vlastní server ani databázi. Po zavření záložky se token automaticky maže.",
+    "tenant.label": "Tenant:",
+    "tenant.switch": "Přepnout tenant"
+  },
+  en: {
+    "app.title": "School Security",
+    "app.subtitle": "Dashboard for EDU tenant",
+    "app.notConnected": "Not connected",
+    "app.connectedAs": "Signed in: {name}",
+    "login.heading": "Sign in to your school tenant",
+    "login.description": "To view security findings, sign in with a work account that has appropriate permissions.",
+    "login.button": "Sign in with Microsoft",
+    "login.buttonSignOut": "Sign out",
+    "login.disabled": "Config not yet filled — see NAVOD-ENTRA-APP.md",
+    "auth.configMissing": "Fill in clientId and tenantId in config.js first. See NAVOD-ENTRA-APP.md.",
+    "auth.loginFailed": "Sign-in failed:",
+    "auth.signedInAs": "Signed in:",
+
+    "nav.overview": "Overview",
+    "nav.threats": "Threats (Defender)",
+    "nav.identity": "Identity",
+    "nav.mail": "Mail",
+    "nav.apps": "Apps",
+    "nav.guests": "Guests",
+    "nav.devices": "Devices",
+
+    "kpi.critical": "Critical",
+    "kpi.warnings": "Warnings",
+    "kpi.info": "Informational",
+    "kpi.lastRun": "Last run",
+
+    "findings.title": "Findings",
+    "findings.filter.all": "All severities",
+    "findings.filter.critical": "Critical",
+    "findings.filter.warning": "Warning",
+    "findings.filter.info": "Informational",
+    "findings.search": "Search…",
+    "findings.empty": "No findings — looks good",
+    "findings.exportCsv": "Export CSV",
+    "findings.refresh": "Refresh",
+
+    "severity.critical": "Critical",
+    "severity.warning": "Warning",
+    "severity.info": "Info",
+
+    "overview.heading": "Security overview",
+    "overview.description": "Summary of all findings across categories.",
+
+    "footer.demo": "Demo mode — showing sample data",
+    "install.button": "Install",
+    "install.title": "Install app to home screen",
+    "menu.open": "Open menu",
+    "privacy.title": "Data privacy",
+    "privacy.body": "Your data never leaves the browser. The app talks directly to Microsoft — it has no server or database. The token is cleared automatically when you close the tab.",
+    "tenant.label": "Tenant:",
+    "tenant.switch": "Switch tenant"
+  }
+};
+
+// Aktuální jazyk (načte se z localStorage, default 'cs')
+let currentLang = localStorage.getItem("lang") || "cs";
+
+function t(key, params) {
+  let str = translations[currentLang][key] || translations["cs"][key] || key;
+  if (params) {
+    for (const k in params) {
+      str = str.replace("{" + k + "}", params[k]);
+    }
+  }
+  return str;
+}
+
+function applyTranslations() {
+  document.documentElement.lang = currentLang;
+  document.title = t("app.title");
+  document.querySelectorAll("[data-i18n]").forEach(el => {
+    el.textContent = t(el.getAttribute("data-i18n"));
+  });
+  // Aktivní tlačítko jazyka
+  document.querySelectorAll(".lang-switch button").forEach(b => {
+    b.classList.toggle("active", b.dataset.lang === currentLang);
+  });
+}
+
+document.querySelectorAll(".lang-switch button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    currentLang = btn.dataset.lang;
+    localStorage.setItem("lang", currentLang);
+    render();
+  });
+});
+
+/* ==========================================================================
+   2) NAVIGACE — kategorie v sidebaru
+
+   Později budou počty odpovídat skutečným nálezům z Graph API.
+   Zatím jsou hardcoded z demo dat.
+   ========================================================================== */
+
+const categories = [
+  { id: "overview",  key: "nav.overview" },
+  { id: "threats",   key: "nav.threats" },   // Defender alerts/incidents/secure score
+  { id: "identity",  key: "nav.identity" },
+  { id: "mail",      key: "nav.mail" },
+  { id: "apps",      key: "nav.apps" },
+  { id: "guests",    key: "nav.guests" },
+  { id: "devices",   key: "nav.devices" }
+];
+
+let currentCategory = "overview";
+
+function renderNav() {
+  const nav = document.getElementById("nav");
+  nav.innerHTML = "";
+  categories.forEach(cat => {
+    const count = demoFindings.filter(f =>
+      cat.id === "overview" ? true : f.category === cat.id
+    ).length;
+
+    const item = document.createElement("div");
+    item.className = "nav-item" + (cat.id === currentCategory ? " active" : "");
+    item.innerHTML = `
+      <span>${t(cat.key)}</span>
+      <span class="count">${count}</span>
+    `;
+    item.addEventListener("click", () => {
+      currentCategory = cat.id;
+      render();
+    });
+    nav.appendChild(item);
+  });
+}
+
+/* ==========================================================================
+   3) DEMO DATA
+
+   Ukázková zjištění, aby se dashboard dal prohlédnout bez přihlášení.
+   V produkci se nahradí voláními Microsoft Graph API.
+   ========================================================================== */
+
+const demoFindings = [
+  {
+    id: "f1", severity: "critical", category: "identity",
+    when: "2026-04-20T09:14:00",
+    message: "5 účtů globálních administrátorů nemá zapnuté MFA",
+    messageEn: "5 Global Admin accounts without MFA",
+    detail: "admin@skola.cz, reditel@skola.cz, ict@skola.cz a další 2",
+    detailEn: "admin@skola.cz, reditel@skola.cz, ict@skola.cz and 2 more"
+  },
+  {
+    id: "f2", severity: "critical", category: "mail",
+    when: "2026-04-19T14:22:00",
+    message: "Externí přeposílací pravidlo: ucitel.novak@skola.cz → *@gmail.com",
+    messageEn: "External forward rule: ucitel.novak@skola.cz → *@gmail.com",
+    detail: "Pravidlo vytvořeno 14.4.2026, stav: aktivní",
+    detailEn: "Rule created 2026-04-14, status: active"
+  },
+  {
+    id: "f3", severity: "warning", category: "apps",
+    when: "2026-04-18T11:02:00",
+    message: "OAuth aplikace „QuizMaster" má oprávnění Mail.ReadWrite",
+    messageEn: "OAuth app \"QuizMaster\" has Mail.ReadWrite permission",
+    detail: "Souhlasilo 47 studentů. Vydavatel neověřen.",
+    detailEn: "47 students consented. Publisher not verified."
+  },
+  {
+    id: "f4", severity: "warning", category: "guests",
+    when: "2026-04-15T08:00:00",
+    message: "18 externích hostů bez přihlášení déle než 90 dní",
+    messageEn: "18 external guests with no sign-in for 90+ days",
+    detail: "Doporučení: zkontrolovat a případně odebrat",
+    detailEn: "Recommendation: review and remove if no longer needed"
+  },
+  {
+    id: "f5", severity: "warning", category: "identity",
+    when: "2026-04-21T06:30:00",
+    message: "3 rizikové přihlášení za posledních 24 hodin",
+    messageEn: "3 risky sign-ins in the last 24 hours",
+    detail: "Netypické lokace: Nigeria, Vietnam",
+    detailEn: "Unusual locations: Nigeria, Vietnam"
+  },
+  {
+    id: "f6", severity: "info", category: "identity",
+    when: "2026-04-20T22:00:00",
+    message: "247 uživatelů nemá registrované MFA",
+    messageEn: "247 users have no MFA registered",
+    detail: "Většinou studenti (A1 licence)",
+    detailEn: "Mostly students (A1 license)"
+  },
+  // --- Defender / Threats ---
+  {
+    id: "f7", severity: "critical", category: "threats",
+    when: "2026-04-21T11:42:00",
+    message: "Defender alert: malware detected na zařízení LAPTOP-USL2",
+    messageEn: "Defender alert: malware detected on device LAPTOP-USL2",
+    detail: "Trojan.Win32/Wacatac.B, izolováno automaticky",
+    detailEn: "Trojan.Win32/Wacatac.B, automatically isolated"
+  },
+  {
+    id: "f8", severity: "warning", category: "threats",
+    when: "2026-04-19T08:14:00",
+    message: "Phishing kampaň zachycena: 3 zprávy doručeny před detekcí",
+    messageEn: "Phishing campaign detected: 3 messages delivered before detection",
+    detail: "Defender for Office 365 — odesílatel spoofed jako 'Microsoft Support'",
+    detailEn: "Defender for Office 365 — sender spoofed as 'Microsoft Support'"
+  },
+  {
+    id: "f9", severity: "info", category: "threats",
+    when: "2026-04-22T06:00:00",
+    message: "Microsoft Secure Score: 67 / 100",
+    messageEn: "Microsoft Secure Score: 67 / 100",
+    detail: "Změna za 7 dní: +4 (zlepšení). Top doporučení: zapnout MFA pro adminy.",
+    detailEn: "7-day change: +4 (improving). Top recommendation: enable MFA for admins."
+  }
+];
+
+/* ==========================================================================
+   4) HLAVNÍ RENDER — vykreslí obsah podle aktuální kategorie
+   ========================================================================== */
+
+let severityFilter = "all";
+let searchQuery = "";
+
+function getFilteredFindings() {
+  return demoFindings.filter(f => {
+    if (currentCategory !== "overview" && f.category !== currentCategory) return false;
+    if (severityFilter !== "all" && f.severity !== severityFilter) return false;
+    if (searchQuery) {
+      const msg = currentLang === "cs" ? f.message : (f.messageEn || f.message);
+      if (!msg.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    }
+    return true;
+  });
+}
+
+function renderMain() {
+  const main = document.getElementById("main");
+  const filtered = getFilteredFindings();
+
+  const critCount = demoFindings.filter(f =>
+    (currentCategory === "overview" || f.category === currentCategory) && f.severity === "critical"
+  ).length;
+  const warnCount = demoFindings.filter(f =>
+    (currentCategory === "overview" || f.category === currentCategory) && f.severity === "warning"
+  ).length;
+  const infoCount = demoFindings.filter(f =>
+    (currentCategory === "overview" || f.category === currentCategory) && f.severity === "info"
+  ).length;
+
+  const catTitle = currentCategory === "overview"
+    ? t("overview.heading")
+    : t("nav." + currentCategory);
+
+  const lastRun = new Date().toLocaleString(currentLang === "cs" ? "cs-CZ" : "en-US");
+
+  // Tenant picker — vykreslí se jen pokud je více než 1 tenant v configu
+  const tenants = getManagedTenants();
+  const activeTenant = getActiveTenant();
+  const tenantPickerHtml = tenants.length > 1 ? `
+    <div class="tenant-picker">
+      <span class="tenant-label">${t("tenant.label")}</span>
+      <select id="tenant-select" title="${t("tenant.switch")}">
+        ${tenants.map(t2 =>
+          '<option value="' + t2.id + '"' + (activeTenant && t2.id === activeTenant.id ? ' selected' : '') + '>' + t2.name + '</option>'
+        ).join("")}
+      </select>
+    </div>
+  ` : "";
+
+  main.innerHTML = `
+    <div class="topbar">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <button class="menu-toggle" id="menu-toggle" aria-label="${t("menu.open")}" title="${t("menu.open")}">☰</button>
+        <div>
+          <h2>${catTitle}</h2>
+          <p style="color: var(--text-muted); margin: 4px 0 0; font-size: 13px;">
+            ${t("footer.demo")}
+          </p>
+        </div>
+      </div>
+      <div class="actions">
+        ${tenantPickerHtml}
+        <button class="btn" id="btn-install" style="display: none;" title="${t("install.title")}">${t("install.button")}</button>
+        <button class="btn" id="btn-refresh">${t("findings.refresh")}</button>
+        <button class="btn" id="btn-export">${t("findings.exportCsv")}</button>
+        <button class="btn primary" id="btn-login" disabled title="${t("login.disabled")}">
+          ${t("login.button")}
+        </button>
+      </div>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi critical">
+        <div class="label">${t("kpi.critical")}</div>
+        <div class="value">${critCount}</div>
+      </div>
+      <div class="kpi warning">
+        <div class="label">${t("kpi.warnings")}</div>
+        <div class="value">${warnCount}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">${t("kpi.info")}</div>
+        <div class="value">${infoCount}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">${t("kpi.lastRun")}</div>
+        <div class="value" style="font-size: 14px; font-weight: 500;">${lastRun}</div>
+      </div>
+    </div>
+
+    <div class="findings">
+      <div class="findings-header">
+        <h3>${t("findings.title")}</h3>
+        <div class="filter-bar">
+          <input type="text" id="search" placeholder="${t("findings.search")}" value="${searchQuery}">
+          <select id="sev-filter">
+            <option value="all">${t("findings.filter.all")}</option>
+            <option value="critical">${t("findings.filter.critical")}</option>
+            <option value="warning">${t("findings.filter.warning")}</option>
+            <option value="info">${t("findings.filter.info")}</option>
+          </select>
+        </div>
+      </div>
+      ${filtered.length === 0 ? `
+        <div class="empty-state">
+          <div class="icon">✓</div>
+          <div>${t("findings.empty")}</div>
+        </div>
+      ` : filtered.map(f => {
+        const msg = currentLang === "cs" ? f.message : (f.messageEn || f.message);
+        const detail = currentLang === "cs" ? f.detail : (f.detailEn || f.detail);
+        const when = new Date(f.when).toLocaleString(currentLang === "cs" ? "cs-CZ" : "en-US");
+        return `
+          <div class="finding-row">
+            <div>
+              <span class="severity ${f.severity}">${t("severity." + f.severity)}</span>
+            </div>
+            <div class="finding-msg">
+              <div>${msg}</div>
+              ${detail ? `<div class="detail">${detail}</div>` : ""}
+            </div>
+            <div class="finding-time">${when}</div>
+          </div>
+        `;
+      }).join("")}
+    </div>
+
+    <div class="privacy-note">
+      <strong>${t("privacy.title")}:</strong> ${t("privacy.body")}
+    </div>
+  `;
+
+  // Nastav hodnotu filtru
+  document.getElementById("sev-filter").value = severityFilter;
+  document.getElementById("sev-filter").addEventListener("change", e => {
+    severityFilter = e.target.value;
+    renderMain();
+  });
+  document.getElementById("search").addEventListener("input", e => {
+    searchQuery = e.target.value;
+    renderMain();
+  });
+  document.getElementById("btn-export").addEventListener("click", exportCsv);
+  document.getElementById("btn-refresh").addEventListener("click", () => render());
+
+  // Mobil: tlačítko ☰ otevírá sidebar
+  const menuToggle = document.getElementById("menu-toggle");
+  if (menuToggle) {
+    menuToggle.addEventListener("click", () => {
+      document.querySelector(".sidebar").classList.add("open");
+      document.getElementById("backdrop").classList.add("show");
+    });
+  }
+
+  // Tenant picker — přepíná aktivní tenant a re-init MSAL
+  const tenantSelect = document.getElementById("tenant-select");
+  if (tenantSelect) {
+    tenantSelect.addEventListener("change", e => {
+      switchTenant(e.target.value);
+    });
+  }
+
+  // Install button — funguje, jen pokud má prohlížeč deferredPrompt
+  const btnInstall = document.getElementById("btn-install");
+  if (btnInstall && deferredInstallPrompt) {
+    btnInstall.style.display = "inline-flex";
+    btnInstall.addEventListener("click", async () => {
+      btnInstall.style.display = "none";
+      deferredInstallPrompt.prompt();
+      const { outcome } = await deferredInstallPrompt.userChoice;
+      console.log("[pwa] Install outcome:", outcome);
+      deferredInstallPrompt = null;
+    });
+  }
+}
+
+/* ==========================================================================
+   5) EXPORT CSV — jednoduchá funkce pro stažení nálezů do CSV
+   ========================================================================== */
+
+function exportCsv() {
+  const filtered = getFilteredFindings();
+  const headers = ["severity", "category", "when", "message", "detail"];
+  const rows = filtered.map(f => {
+    const msg = currentLang === "cs" ? f.message : (f.messageEn || f.message);
+    const detail = currentLang === "cs" ? f.detail : (f.detailEn || f.detail);
+    return [f.severity, f.category, f.when, msg, detail || ""]
+      .map(v => '"' + String(v).replace(/"/g, '""') + '"')
+      .join(",");
+  });
+  const csv = "\ufeff" + headers.join(",") + "\n" + rows.join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "skolni-bezpecnost-" + new Date().toISOString().slice(0,10) + ".csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ==========================================================================
+   6) AUTH — MSAL.js integrace
+
+   Microsoft Authentication Library (MSAL) zajišťuje přihlášení
+   přes Microsoft účet. Používáme popup variantu — přihlašovací okno
+   se otevře v novém okně, uživatel se přihlásí, okno se zavře,
+   a my máme v ruce access token pro Microsoft Graph API.
+
+   Bezpečnost:
+   - Token je uložen v sessionStorage (smaže se zavřením záložky)
+   - Používáme "delegated permissions" — aplikace dělá jen to,
+     na co má právo přihlášený uživatel
+   - Žádné heslo nikdy neprochází přes naši aplikaci
+   ========================================================================== */
+
+let msalInstance = null;
+let currentAccount = null;
+
+function isConfigFilled() {
+  const cfg = window.APP_CONFIG;
+  if (!cfg || !cfg.clientId || cfg.clientId === "VYPLN_CLIENT_ID") return false;
+  if (!Array.isArray(cfg.managedTenants) || cfg.managedTenants.length === 0) return false;
+  // Alespoň jeden tenant musí mít vyplněné ID
+  return cfg.managedTenants.some(t => t.id && t.id !== "VYPLN_TENANT_ID");
+}
+
+// Vrátí seznam validních tenantů (vyfiltruje placeholdery)
+function getManagedTenants() {
+  const cfg = window.APP_CONFIG;
+  if (!cfg || !Array.isArray(cfg.managedTenants)) return [];
+  return cfg.managedTenants.filter(t => t.id && t.id !== "VYPLN_TENANT_ID");
+}
+
+// Aktuálně vybraný tenant (default první z managedTenants)
+let activeTenantId = null;
+
+function getActiveTenant() {
+  const tenants = getManagedTenants();
+  if (tenants.length === 0) return null;
+  if (!activeTenantId) activeTenantId = tenants[0].id;
+  return tenants.find(t => t.id === activeTenantId) || tenants[0];
+}
+
+async function initAuth() {
+  if (!isConfigFilled()) {
+    console.log("[auth] Config není vyplněn — přihlášení zatím neaktivní.");
+    return;
+  }
+
+  if (typeof msal === "undefined") {
+    console.error("[auth] MSAL knihovna se nenačetla. Zkontroluj připojení k internetu.");
+    return;
+  }
+
+  const cfg = window.APP_CONFIG;
+  const tenant = getActiveTenant();
+  const msalConfig = {
+    auth: {
+      clientId: cfg.clientId,
+      // Authority cílí na konkrétní tenant — při přepnutí tenantu znovu
+      // inicializujeme MSAL s jiným authority.
+      authority: "https://login.microsoftonline.com/" + tenant.id,
+      redirectUri: window.location.origin + window.location.pathname
+    },
+    cache: {
+      cacheLocation: "sessionStorage", // bezpečnější než localStorage
+      storeAuthStateInCookie: false
+    }
+  };
+
+  msalInstance = new msal.PublicClientApplication(msalConfig);
+  await msalInstance.initialize();
+
+  // Pokud máme po předchozím přihlášení nějaký účet v cache, použij ho
+  const accounts = msalInstance.getAllAccounts();
+  if (accounts.length > 0) {
+    currentAccount = accounts[0];
+    msalInstance.setActiveAccount(currentAccount);
+  }
+}
+
+async function signIn() {
+  if (!msalInstance) {
+    alert(t("auth.configMissing"));
+    return;
+  }
+  try {
+    const response = await msalInstance.loginPopup({
+      scopes: window.APP_CONFIG.scopes,
+      prompt: "select_account"
+    });
+    currentAccount = response.account;
+    msalInstance.setActiveAccount(currentAccount);
+    render();
+  } catch (e) {
+    console.error("[auth] Přihlášení selhalo:", e);
+    alert(t("auth.loginFailed") + "\n\n" + e.message);
+  }
+}
+
+async function signOut() {
+  if (!msalInstance || !currentAccount) return;
+  await msalInstance.logoutPopup({ account: currentAccount });
+  currentAccount = null;
+  render();
+}
+
+// Přepnout aktivní tenant — odhlásit současný, znovu inicializovat MSAL
+// s jiným authority a znovu se přihlásit pod novým tenantem.
+async function switchTenant(newTenantId) {
+  const tenants = getManagedTenants();
+  if (!tenants.find(t => t.id === newTenantId)) return;
+
+  if (msalInstance && currentAccount) {
+    try {
+      await msalInstance.logoutPopup({ account: currentAccount });
+    } catch (e) {
+      // Pokud uživatel zruší logout, neměň tenant
+      console.warn("[auth] Přepnutí tenantu zrušeno:", e.message);
+      return;
+    }
+  }
+
+  currentAccount = null;
+  msalInstance = null;
+  activeTenantId = newTenantId;
+  await initAuth();
+  render();
+}
+
+function isAuthenticated() {
+  return currentAccount !== null;
+}
+
+function getAccountName() {
+  if (!currentAccount) return "";
+  return currentAccount.name || currentAccount.username || "";
+}
+
+// Získá access token pro volání Microsoft Graph (zatím nevyužito — přijde ve fázi 3)
+async function getAccessToken() {
+  if (!msalInstance || !currentAccount) return null;
+  try {
+    const result = await msalInstance.acquireTokenSilent({
+      scopes: window.APP_CONFIG.scopes,
+      account: currentAccount
+    });
+    return result.accessToken;
+  } catch (e) {
+    if (e instanceof msal.InteractionRequiredAuthError) {
+      const result = await msalInstance.acquireTokenPopup({
+        scopes: window.APP_CONFIG.scopes
+      });
+      return result.accessToken;
+    }
+    throw e;
+  }
+}
+
+/* ==========================================================================
+   7) MAIN RENDER — spojí vše dohromady
+   ========================================================================== */
+
+function render() {
+  applyTranslations();
+  renderNav();
+  renderMain();
+  renderAuthState();
+}
+
+function renderAuthState() {
+  // Aktualizuj sidebar footer podle stavu přihlášení
+  const tenantInfo = document.getElementById("tenant-info");
+  if (tenantInfo) {
+    if (isAuthenticated()) {
+      tenantInfo.textContent = t("auth.signedInAs") + " " + getAccountName();
+    } else {
+      tenantInfo.textContent = t("app.notConnected");
+    }
+  }
+
+  // Aktualizuj tlačítko přihlášení v topbaru
+  const btn = document.getElementById("btn-login");
+  if (!btn) return;
+
+  if (isAuthenticated()) {
+    btn.textContent = t("login.buttonSignOut");
+    btn.disabled = false;
+    btn.title = "";
+    btn.onclick = signOut;
+  } else if (!isConfigFilled()) {
+    btn.textContent = t("login.button");
+    btn.disabled = true;
+    btn.title = t("login.disabled");
+    btn.onclick = null;
+  } else {
+    btn.textContent = t("login.button");
+    btn.disabled = false;
+    btn.title = "";
+    btn.onclick = signIn;
+  }
+}
+
+// Nejdřív inicializuj MSAL (může načíst cached účet), teprve pak vykresli
+initAuth().then(() => render());
+
+/* ==========================================================================
+   8) PWA — service worker a install prompt
+
+   Service worker (sw.js) cachuje statické soubory aplikace, takže
+   funguje i offline. Install prompt umožňuje uživateli přidat
+   aplikaci na plochu jako nativní app.
+   ========================================================================== */
+
+let deferredInstallPrompt = null;
+
+// Registruj service worker (běží jen na https a localhost)
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js")
+      .then(reg => console.log("[pwa] Service worker zaregistrován, scope:", reg.scope))
+      .catch(err => console.warn("[pwa] Service worker se nepodařilo zaregistrovat:", err));
+  });
+}
+
+// Chrome/Edge — odchytí "beforeinstallprompt" a uloží ho pro pozdější použití
+window.addEventListener("beforeinstallprompt", e => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  // Re-render aby se objevilo install tlačítko
+  if (typeof renderMain === "function") renderMain();
+});
+
+window.addEventListener("appinstalled", () => {
+  console.log("[pwa] Aplikace nainstalována");
+  deferredInstallPrompt = null;
+});
+
+// Backdrop kliknutí zavře sidebar
+document.addEventListener("DOMContentLoaded", () => {
+  const backdrop = document.getElementById("backdrop");
+  if (backdrop) {
+    backdrop.addEventListener("click", () => {
+      document.querySelector(".sidebar").classList.remove("open");
+      backdrop.classList.remove("show");
+    });
+  }
+});
+
+// Po kliknutí na položku navigace zavři sidebar (na mobilu)
+document.addEventListener("click", e => {
+  if (e.target.closest(".nav-item")) {
+    document.querySelector(".sidebar").classList.remove("open");
+    const backdrop = document.getElementById("backdrop");
+    if (backdrop) backdrop.classList.remove("show");
+  }
+});
+</script>
+
+</body>
+</html>

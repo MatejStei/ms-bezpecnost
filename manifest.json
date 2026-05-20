@@ -1,0 +1,33 @@
+{
+  "name": "Školní bezpečnost",
+  "short_name": "Školní bezpečnost",
+  "description": "Bezpečnostní dashboard pro EDU tenant",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f4f7fb",
+  "theme_color": "#003d82",
+  "lang": "cs",
+  "categories": ["education", "productivity", "security"],
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
