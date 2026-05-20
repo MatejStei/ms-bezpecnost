@@ -2,7 +2,9 @@
 
 Tenhle návod tě provede krokem za krokem — od "mám účet" k "projekt je online a funguje jako web".
 
-Předpoklad: máš **založený účet na github.com** (username: `MatejStei`).
+Předpoklad: máš **založený účet na github.com**.
+
+> **Upozornění k soukromí:** GitHub Pages repo bude **veřejné**, takže kdokoli uvidí kód. To je v pořádku — žádné citlivé údaje (clientId, tenant IDs, jména školek) v něm nejsou. Konfigurace se vyplňuje v aplikaci přes „Nastavení" a ukládá se **jen v tvém prohlížeči**, ne na GitHubu. Více v sekci [Soukromí](#soukromí-dat) na konci tohoto návodu.
 
 Celý proces zabere **15–20 minut**. Většinu času je to jen klikání ve webovém prohlížeči.
 
@@ -13,7 +15,7 @@ Celý proces zabere **15–20 minut**. Většinu času je to jen klikání ve we
 Až dokončíš tenhle návod, budeš mít:
 
 1. Veřejný repozitář `skolni-bezpecnost` na GitHubu
-2. Živý web na adrese `https://matejstei.github.io/skolni-bezpecnost/`
+2. Živý web na adrese `https://{tvuj-github-username}.github.io/skolni-bezpecnost/`
 3. Možnost cokoliv kdykoliv upravit — buď přímo ve webu GitHubu, nebo stažením do počítače
 
 ---
@@ -33,7 +35,7 @@ Až dokončíš tenhle návod, budeš mít:
    - **Choose a license:** None
 4. Klikni **Create repository**.
 
-Dostaneš se na stránku `github.com/MatejStei/skolni-bezpecnost`. Je prázdná — to je správně.
+Dostaneš se na stránku `github.com/{tvuj-github-username}/skolni-bezpecnost`. Je prázdná — to je správně.
 
 ---
 
@@ -79,7 +81,7 @@ GitHub Pages je funkce, která z tvého repozitáře udělá živý web. Zdarma.
    - **Branch:** `main` a složka `/ (root)`
    - Klikni **Save**.
 
-GitHub ti ukáže zelený pruh: *Your site is live at https://matejstei.github.io/skolni-bezpecnost/*.
+GitHub ti ukáže zelený pruh: *Your site is live at https://{tvuj-github-username}.github.io/skolni-bezpecnost/*.
 
 První nasazení trvá **2–5 minut**. Počkej, dej si kávu, pak zkus otevřít tu adresu.
 
@@ -89,7 +91,7 @@ První nasazení trvá **2–5 minut**. Počkej, dej si kávu, pak zkus otevří
 
 ## KROK 4: Vyzkoušej to
 
-Otevři `https://matejstei.github.io/skolni-bezpecnost/` v prohlížeči.
+Otevři `https://{tvuj-github-username}.github.io/skolni-bezpecnost/` v prohlížeči.
 
 Mělo by se otevřít:
 - Sidebar s kategoriemi (Přehled, Identita, Pošta, Aplikace, Hosté, Zařízení)
@@ -145,13 +147,30 @@ Tohle budu doporučovat, jakmile začneme dělat větší změny. Zatím to nepo
 
 ---
 
+## Soukromí dat
+
+GitHub Pages repo je **veřejné** a kdokoli vidí kód. Toto je záměr — projekt je open source.
+
+**Co je v repu vidět:**
+- Kód aplikace (HTML, JS, CSS)
+- Návody a dokumentace
+- Šablona `config.js` s prázdnými hodnotami
+
+**Co NIKDY není v repu:**
+- Tvůj clientId nebo tenant IDs — vyplňuješ je v aplikaci přes „Nastavení", uloží se do **localStorage tvého prohlížeče**
+- Tvoje hesla, tokeny, ani data ze sledovaných tenantů — nic z toho se nedostane do žádného souboru ani na žádný server
+
+Pokud bys přesto omylem commitnul `config.js` s reálnými hodnotami: smaž z něj obsah a znovu commitni. Konfiguraci máš v prohlížeči, neztratíš ji.
+
+---
+
 ## Co dál
 
 Až potvrdíš, že ti základ funguje, pokračujeme:
 
-1. **Založíme Entra ID App Registration** pro tvůj tenant (kam se budou uživatelé hlásit)
-2. **Přidáme MSAL.js** — skutečné přihlášení Microsoft účtem
-3. **Implementujeme první check** — uživatelé bez MFA
+1. **Založíme Entra ID App Registration** (viz `NAVOD-ENTRA-APP.md`)
+2. **V aplikaci klikneš na "⚙ Nastavení"** a vyplníš identifikátory — uloží se ti do prohlížeče
+3. **Přihlásíš se Microsoft účtem** a aplikace začne tahat skutečná data
 4. Postupně zbývajících 5 checků
 5. Polish a dokumentace pro školu
 

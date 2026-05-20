@@ -33,13 +33,13 @@
        ======================================================================= */
 
     :root {
-      /* Barevná paleta inspirovaná Rytíři Kladno — navy blue + white */
+      /* Barevná paleta — navy blue + white */
       --bg: #f4f7fb;           /* jemný modro-šedý podklad */
       --panel: #ffffff;        /* bílé karty */
       --border: #d6e0ec;       /* jemná modravá čára */
       --text: #0f1f3a;         /* tmavě navy místo čisté černé */
       --text-muted: #5a6b82;   /* tlumená modro-šedá */
-      --accent: #003d82;       /* Kladno navy */
+      --accent: #003d82;       /* navy */
       --accent-hover: #002b5c; /* tmavší navy pro hover */
       --accent-light: #e8f0fa; /* světlý modrý hover podklad */
       --critical: #dc2626;
@@ -408,6 +408,136 @@
       }
     }
 
+    /* --- Settings modal --- */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(15, 31, 58, 0.55);
+      z-index: 200;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 5vh 16px;
+      overflow-y: auto;
+    }
+    .modal-overlay.show { display: flex; }
+    .modal {
+      background: var(--panel);
+      border-radius: 10px;
+      max-width: 600px;
+      width: 100%;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      overflow: hidden;
+    }
+    .modal-header {
+      background: var(--accent);
+      color: white;
+      padding: 18px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .modal-header h3 {
+      margin: 0;
+      font-size: 17px;
+      color: white;
+    }
+    .modal-close {
+      background: transparent;
+      border: none;
+      color: white;
+      font-size: 22px;
+      cursor: pointer;
+      padding: 0;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+    }
+    .modal-close:hover { background: rgba(255,255,255,0.15); }
+    .modal-body {
+      padding: 24px;
+    }
+    .modal-intro {
+      margin: 0 0 20px;
+      color: var(--text-muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .field {
+      margin-bottom: 16px;
+    }
+    .field label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .field input[type="text"] {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      min-height: 40px;
+    }
+    .field input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-light);
+    }
+    .field .hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+    .tenant-row {
+      display: grid;
+      grid-template-columns: 1fr 1.5fr 40px;
+      gap: 8px;
+      margin-bottom: 8px;
+      align-items: center;
+    }
+    .tenant-row input { min-height: 38px; }
+    .tenant-row .remove-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      width: 38px;
+      height: 38px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    .tenant-row .remove-btn:hover {
+      background: #fee2e2;
+      color: var(--critical);
+      border-color: var(--critical);
+    }
+    .modal-footer {
+      padding: 16px 24px;
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .privacy-banner-small {
+      font-size: 11px;
+      color: var(--text-muted);
+      flex: 1 1 auto;
+      min-width: 200px;
+    }
+
     /* --- Tenant picker (jen v multi-tenant režimu) --- */
     .tenant-picker {
       display: inline-flex;
@@ -488,6 +618,40 @@
 
 </div>
 
+<!-- ======================== SETTINGS MODAL ======================== -->
+<div class="modal-overlay" id="settings-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="settings-title">Nastavení aplikace</h3>
+      <button class="modal-close" id="settings-close" aria-label="Zavřít">×</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-intro" id="settings-intro"></p>
+
+      <div class="field">
+        <label id="lbl-clientId" for="cfg-clientId">Client ID</label>
+        <input type="text" id="cfg-clientId" placeholder="00000000-0000-0000-0000-000000000000" autocomplete="off">
+        <div class="hint" id="hint-clientId"></div>
+      </div>
+
+      <div class="field">
+        <label id="lbl-tenants">Tenanty</label>
+        <div class="hint" id="hint-tenants" style="margin-bottom: 10px;"></div>
+        <div id="tenants-list"></div>
+        <button class="btn" id="btn-add-tenant" style="margin-top: 8px;">+ Přidat tenant</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <span class="privacy-banner-small" id="privacy-banner-small"></span>
+      <div style="display: flex; gap: 8px;">
+        <button class="btn" id="btn-clear-config" style="color: var(--critical); border-color: var(--critical);">Smazat vše</button>
+        <button class="btn" id="btn-cancel-settings">Zrušit</button>
+        <button class="btn primary" id="btn-save-config">Uložit</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ==========================================================================
    1) INTERNACIONALIZACE (i18n)
@@ -549,7 +713,25 @@ const translations = {
     "privacy.title": "Soukromí dat",
     "privacy.body": "Vaše data nikdy neopouštějí prohlížeč. Aplikace mluví přímo s Microsoftem, nemá vlastní server ani databázi. Po zavření záložky se token automaticky maže.",
     "tenant.label": "Tenant:",
-    "tenant.switch": "Přepnout tenant"
+    "tenant.switch": "Přepnout tenant",
+    "settings.button": "Nastavení",
+    "settings.title": "Nastavení aplikace",
+    "settings.intro": "Vyplň identifikátory z tvé Entra App Registration. Údaje se uloží pouze v tomto prohlížeči (localStorage) a nikam jinam.",
+    "settings.clientId": "Client ID (Application ID)",
+    "settings.clientIdHint": "Najdeš v Entře → App Registrations → tvoje app → Overview",
+    "settings.tenants": "Tenanty",
+    "settings.tenantsHint": "Pro každého spravovaného tenanta zadej krátký název a Tenant ID. Pro jednu školu/školku stačí jeden řádek.",
+    "settings.tenantName": "Název (volitelný)",
+    "settings.tenantId": "Tenant ID",
+    "settings.addTenant": "Přidat tenant",
+    "settings.remove": "Odebrat",
+    "settings.save": "Uložit a pokračovat",
+    "settings.cancel": "Zrušit",
+    "settings.clearAll": "Smazat vše a začít znovu",
+    "settings.privacyNote": "Údaje žijí jen v tomto prohlížeči. Žádný server, žádné GitHub.",
+    "settings.invalidClientId": "Vyplň Client ID (formát GUID, 36 znaků s pomlčkami).",
+    "settings.invalidTenantId": "Alespoň jeden tenant musí mít vyplněné Tenant ID.",
+    "settings.confirmClear": "Opravdu smazat všechny uložené údaje? Tuto akci nelze vrátit."
   },
   en: {
     "app.title": "School Security",
@@ -602,7 +784,25 @@ const translations = {
     "privacy.title": "Data privacy",
     "privacy.body": "Your data never leaves the browser. The app talks directly to Microsoft — it has no server or database. The token is cleared automatically when you close the tab.",
     "tenant.label": "Tenant:",
-    "tenant.switch": "Switch tenant"
+    "tenant.switch": "Switch tenant",
+    "settings.button": "Settings",
+    "settings.title": "Application settings",
+    "settings.intro": "Fill in the identifiers from your Entra App Registration. Values are stored in this browser only (localStorage) and nowhere else.",
+    "settings.clientId": "Client ID (Application ID)",
+    "settings.clientIdHint": "Find in Entra → App Registrations → your app → Overview",
+    "settings.tenants": "Tenants",
+    "settings.tenantsHint": "For each managed tenant enter a short name and Tenant ID. For a single school just one row.",
+    "settings.tenantName": "Name (optional)",
+    "settings.tenantId": "Tenant ID",
+    "settings.addTenant": "Add tenant",
+    "settings.remove": "Remove",
+    "settings.save": "Save and continue",
+    "settings.cancel": "Cancel",
+    "settings.clearAll": "Clear all and start over",
+    "settings.privacyNote": "Values live only in this browser. No server, no GitHub.",
+    "settings.invalidClientId": "Fill in Client ID (GUID format, 36 chars with dashes).",
+    "settings.invalidTenantId": "At least one tenant must have a Tenant ID.",
+    "settings.confirmClear": "Really delete all saved values? This cannot be undone."
   }
 };
 
@@ -832,6 +1032,7 @@ function renderMain() {
         <button class="btn" id="btn-install" style="display: none;" title="${t("install.title")}">${t("install.button")}</button>
         <button class="btn" id="btn-refresh">${t("findings.refresh")}</button>
         <button class="btn" id="btn-export">${t("findings.exportCsv")}</button>
+        <button class="btn" id="btn-settings" title="${t("settings.button")}">⚙ ${t("settings.button")}</button>
         <button class="btn primary" id="btn-login" disabled title="${t("login.disabled")}">
           ${t("login.button")}
         </button>
@@ -929,6 +1130,12 @@ function renderMain() {
     });
   }
 
+  // Tlačítko Nastavení
+  const btnSettings = document.getElementById("btn-settings");
+  if (btnSettings) {
+    btnSettings.addEventListener("click", openSettings);
+  }
+
   // Install button — funguje, jen pokud má prohlížeč deferredPrompt
   const btnInstall = document.getElementById("btn-install");
   if (btnInstall && deferredInstallPrompt) {
@@ -985,19 +1192,54 @@ function exportCsv() {
 let msalInstance = null;
 let currentAccount = null;
 
-function isConfigFilled() {
-  const cfg = window.APP_CONFIG;
-  if (!cfg || !cfg.clientId || cfg.clientId === "VYPLN_CLIENT_ID") return false;
-  if (!Array.isArray(cfg.managedTenants) || cfg.managedTenants.length === 0) return false;
-  // Alespoň jeden tenant musí mít vyplněné ID
-  return cfg.managedTenants.some(t => t.id && t.id !== "VYPLN_TENANT_ID");
+/* --------------------------------------------------------------------------
+   Konfigurace — žije v localStorage prohlížeče.
+
+   Filozofie: žádné citlivé hodnoty (clientId, tenant IDs, jména školek)
+   nikdy nejsou v repu. Uživatel je vyplní v aplikaci ("Nastavení"),
+   uloží se jen v jeho prohlížeči a nikam jinam.
+   -------------------------------------------------------------------------- */
+
+const LS_CONFIG_KEY = "skolni-bezpecnost.config";
+
+// Načte uživatelovu konfiguraci z localStorage (nebo null, pokud žádná není)
+function loadUserConfig() {
+  try {
+    const raw = localStorage.getItem(LS_CONFIG_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch (e) {
+    console.warn("[config] Nelze načíst uloženou konfiguraci:", e);
+    return null;
+  }
 }
 
-// Vrátí seznam validních tenantů (vyfiltruje placeholdery)
+// Uloží uživatelovu konfiguraci do localStorage
+function saveUserConfig(cfg) {
+  localStorage.setItem(LS_CONFIG_KEY, JSON.stringify(cfg));
+}
+
+// Vrátí "efektivní" config — preferuje uživatelův z localStorage, jinak APP_CONFIG.
+function getEffectiveConfig() {
+  const user = loadUserConfig();
+  if (user && user.clientId) return user;
+  return window.APP_CONFIG || { clientId: "", managedTenants: [], scopes: ["User.Read"] };
+}
+
+function isConfigFilled() {
+  const cfg = getEffectiveConfig();
+  if (!cfg || !cfg.clientId) return false;
+  if (!Array.isArray(cfg.managedTenants) || cfg.managedTenants.length === 0) return false;
+  return cfg.managedTenants.some(t => t.id);
+}
+
+// Vrátí seznam validních tenantů
 function getManagedTenants() {
-  const cfg = window.APP_CONFIG;
+  const cfg = getEffectiveConfig();
   if (!cfg || !Array.isArray(cfg.managedTenants)) return [];
-  return cfg.managedTenants.filter(t => t.id && t.id !== "VYPLN_TENANT_ID");
+  return cfg.managedTenants.filter(t => t.id);
 }
 
 // Aktuálně vybraný tenant (default první z managedTenants)
@@ -1021,7 +1263,7 @@ async function initAuth() {
     return;
   }
 
-  const cfg = window.APP_CONFIG;
+  const cfg = getEffectiveConfig();
   const tenant = getActiveTenant();
   const msalConfig = {
     auth: {
@@ -1055,7 +1297,7 @@ async function signIn() {
   }
   try {
     const response = await msalInstance.loginPopup({
-      scopes: window.APP_CONFIG.scopes,
+      scopes: getEffectiveConfig().scopes || ["User.Read"],
       prompt: "select_account"
     });
     currentAccount = response.account;
@@ -1109,17 +1351,16 @@ function getAccountName() {
 // Získá access token pro volání Microsoft Graph (zatím nevyužito — přijde ve fázi 3)
 async function getAccessToken() {
   if (!msalInstance || !currentAccount) return null;
+  const scopes = getEffectiveConfig().scopes || ["User.Read"];
   try {
     const result = await msalInstance.acquireTokenSilent({
-      scopes: window.APP_CONFIG.scopes,
+      scopes: scopes,
       account: currentAccount
     });
     return result.accessToken;
   } catch (e) {
     if (e instanceof msal.InteractionRequiredAuthError) {
-      const result = await msalInstance.acquireTokenPopup({
-        scopes: window.APP_CONFIG.scopes
-      });
+      const result = await msalInstance.acquireTokenPopup({ scopes });
       return result.accessToken;
     }
     throw e;
@@ -1170,8 +1411,170 @@ function renderAuthState() {
   }
 }
 
-// Nejdřív inicializuj MSAL (může načíst cached účet), teprve pak vykresli
-initAuth().then(() => render());
+/* ==========================================================================
+   8) SETTINGS UI — formulář pro vyplnění configu (clientId + tenanty)
+
+   Veškerá data uživatele žijí jen v localStorage. Při prvním otevření,
+   pokud žádný config není uložený, se modal sám zobrazí.
+   ========================================================================== */
+
+// Pracovní kopie tenantů v modalu (řádky formuláře)
+let settingsTenants = [];
+
+function openSettings() {
+  // Naplň formulář aktuálními hodnotami z localStorage (pokud existují)
+  const stored = loadUserConfig();
+  document.getElementById("cfg-clientId").value = stored?.clientId || "";
+  settingsTenants = stored?.managedTenants
+    ? stored.managedTenants.map(t => ({ id: t.id || "", name: t.name || "" }))
+    : [{ id: "", name: "" }];
+
+  // Aktualizuj texty podle aktuálního jazyka
+  document.getElementById("settings-title").textContent  = t("settings.title");
+  document.getElementById("settings-intro").textContent  = t("settings.intro");
+  document.getElementById("lbl-clientId").textContent    = t("settings.clientId");
+  document.getElementById("hint-clientId").textContent   = t("settings.clientIdHint");
+  document.getElementById("lbl-tenants").textContent     = t("settings.tenants");
+  document.getElementById("hint-tenants").textContent    = t("settings.tenantsHint");
+  document.getElementById("btn-add-tenant").textContent  = "+ " + t("settings.addTenant");
+  document.getElementById("btn-cancel-settings").textContent = t("settings.cancel");
+  document.getElementById("btn-save-config").textContent = t("settings.save");
+  document.getElementById("btn-clear-config").textContent = t("settings.clearAll");
+  document.getElementById("privacy-banner-small").textContent = t("settings.privacyNote");
+
+  renderSettingsTenants();
+  document.getElementById("settings-modal").classList.add("show");
+}
+
+function closeSettings() {
+  document.getElementById("settings-modal").classList.remove("show");
+}
+
+function renderSettingsTenants() {
+  const list = document.getElementById("tenants-list");
+  list.innerHTML = "";
+  settingsTenants.forEach((tenant, idx) => {
+    const row = document.createElement("div");
+    row.className = "tenant-row";
+    row.innerHTML = `
+      <input type="text" placeholder="${t("settings.tenantName")}" value="${escapeHtml(tenant.name)}" data-idx="${idx}" data-field="name">
+      <input type="text" placeholder="${t("settings.tenantId")} (00000000-0000-0000-0000-000000000000)" value="${escapeHtml(tenant.id)}" data-idx="${idx}" data-field="id">
+      <button class="remove-btn" data-remove="${idx}" title="${t("settings.remove")}">×</button>
+    `;
+    list.appendChild(row);
+  });
+  // Připoj listenery
+  list.querySelectorAll("input").forEach(inp => {
+    inp.addEventListener("input", e => {
+      const i = parseInt(e.target.dataset.idx, 10);
+      const f = e.target.dataset.field;
+      settingsTenants[i][f] = e.target.value.trim();
+    });
+  });
+  list.querySelectorAll(".remove-btn").forEach(btn => {
+    btn.addEventListener("click", e => {
+      const i = parseInt(e.target.dataset.remove, 10);
+      settingsTenants.splice(i, 1);
+      if (settingsTenants.length === 0) settingsTenants.push({ id: "", name: "" });
+      renderSettingsTenants();
+    });
+  });
+}
+
+function escapeHtml(s) {
+  if (!s) return "";
+  return String(s)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function isValidGuid(s) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s || "");
+}
+
+function saveSettings() {
+  const clientId = document.getElementById("cfg-clientId").value.trim();
+  if (!isValidGuid(clientId)) {
+    alert(t("settings.invalidClientId"));
+    return;
+  }
+  // Vyfiltruj prázdné řádky
+  const validTenants = settingsTenants
+    .filter(x => x.id && x.id.trim())
+    .map(x => ({
+      id: x.id.trim(),
+      name: (x.name && x.name.trim()) || x.id.trim().substring(0, 8)
+    }));
+  if (validTenants.length === 0) {
+    alert(t("settings.invalidTenantId"));
+    return;
+  }
+  // Pokud nějaký tenant ID nevypadá jako GUID, varuj ale neblokuj
+  const badGuids = validTenants.filter(x => !isValidGuid(x.id));
+  if (badGuids.length > 0) {
+    if (!confirm("Některá Tenant ID nevypadají jako platný GUID:\n" + badGuids.map(x => x.id).join("\n") + "\n\nUložit přesto?")) {
+      return;
+    }
+  }
+
+  saveUserConfig({
+    clientId,
+    managedTenants: validTenants,
+    scopes: ["User.Read"]
+  });
+
+  closeSettings();
+  // Resetuj msal stav a překresli s novým configem
+  msalInstance = null;
+  currentAccount = null;
+  activeTenantId = null;
+  initAuth().then(() => render());
+}
+
+function clearAllConfig() {
+  if (!confirm(t("settings.confirmClear"))) return;
+  localStorage.removeItem(LS_CONFIG_KEY);
+  closeSettings();
+  msalInstance = null;
+  currentAccount = null;
+  activeTenantId = null;
+  // Otevři modal znova s prázdnými poli
+  setTimeout(openSettings, 50);
+  render();
+}
+
+// Naváži listenery jednou při startu (modal je v DOMu od začátku)
+document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("settings-close").addEventListener("click", closeSettings);
+  document.getElementById("btn-cancel-settings").addEventListener("click", closeSettings);
+  document.getElementById("btn-save-config").addEventListener("click", saveSettings);
+  document.getElementById("btn-clear-config").addEventListener("click", clearAllConfig);
+  document.getElementById("btn-add-tenant").addEventListener("click", () => {
+    settingsTenants.push({ id: "", name: "" });
+    renderSettingsTenants();
+  });
+  // Klik mimo modal zavře (jen click na overlay, ne na samotný panel)
+  document.getElementById("settings-modal").addEventListener("click", e => {
+    if (e.target.id === "settings-modal") closeSettings();
+  });
+});
+
+/* ==========================================================================
+   9) START — inicializuj a vykresli
+   ========================================================================== */
+
+// Nejdřív inicializuj MSAL (může načíst cached účet), teprve pak vykresli.
+// Pokud uživatel nemá vyplněný config, otevři rovnou Nastavení.
+initAuth().then(() => {
+  render();
+  if (!isConfigFilled()) {
+    // Otevři modal jakmile DOM nastartuje (kvůli porovnání kdy se naloadovaly listenery)
+    setTimeout(openSettings, 100);
+  }
+});
 
 /* ==========================================================================
    8) PWA — service worker a install prompt

@@ -19,7 +19,7 @@ Toto je standardní pattern používaný i Microsoftem samotným pro jejich apli
 
 ## Tvůj domácí tenant
 
-Než začneš, rozhodni se, **kde tahle App Registration bude bydlet**. Doporučuju samostatný tenant nebo ICT Kladno, ne testovací. Důvody:
+Než začneš, rozhodni se, **kde tahle App Registration bude bydlet**. Doporučuju produkční tenant tvojí organizace, ne testovací. Důvody:
 
 - App Reg ID se bude objevovat v consent dialozích každé spravované školky/školky
 - vidí ho administrátoři, kteří dávají souhlas — má to vypadat důvěryhodně, ne z testovacího tenantu „mojetestik123"
@@ -51,7 +51,7 @@ Vyplň:
 
 ### Redirect URI podle toho, kde dashboard pojede
 
-- **Pokud máš GitHub Pages live:** `https://matejstei.github.io/skolni-bezpecnost/`
+- **Pokud máš GitHub Pages live:** `https://{tvuj-github-username}.github.io/skolni-bezpecnost/`
 - **Pokud testuješ lokálně:** `http://localhost:3000/` (musíš spustit lokální server, viz sekce [Lokální testování](#lokální-testování-bez-github-pages))
 
 **Doporučuju:** zadej **obě adresy**. První teď, druhou přidáš v kroku 5 — aby sis mohl testovat lokálně i z GitHub Pages.
@@ -111,29 +111,25 @@ Klikni **Save** nahoře.
 
 ---
 
-## KROK 6: Vyplň config.js
+## KROK 6: Vyplň údaje v aplikaci přes „Nastavení"
 
-Otevři soubor `config.js` ve svém projektu. Vyplň `clientId` z kroku 3 a do `managedTenants` přidej tenanty, které chceš mít v dashboardu:
+**Údaje se NEzapisují do žádného souboru ani se necommitují na GitHub.** Vyplníš je přímo v aplikaci, ukládají se jen do localStorage tvého prohlížeče a nikam jinam.
 
-```js
-window.APP_CONFIG = {
-  clientId: "12345678-abcd-ef01-2345-6789abcdef01",  // tvůj Application (client) ID
+1. Otevři aplikaci v prohlížeči (svou GitHub Pages adresu, nebo lokálně).
+2. Při prvním otevření se automaticky zobrazí **dialog Nastavení**. Kdykoli později ho můžeš znovu otevřít tlačítkem **⚙ Nastavení** v pravém horním rohu.
+3. Vyplň:
+   - **Client ID** — Application (client) ID z kroku 3
+   - **Tenanty** — pro každého spravovaného tenantu jeden řádek:
+     - **Název** — volitelný (např. „Naše škola" nebo „MŠ A")
+     - **Tenant ID** — Directory (tenant) ID dané školy/školky
+4. Pro každý další tenant klikni **+ Přidat tenant**.
+5. Klikni **Uložit**.
 
-  managedTenants: [
-    { id: "abcdef12-...-...", name: "MŠ Sluníčko Kladno" },
-    { id: "98765432-...-...", name: "MŠ Klíček Buštěhrad" }
-    // další školky/školy přidávej sem
-  ],
+**Kde Tenant ID najdeš:** v Entře daného tenantu → **Overview** → **Tenant ID**. Nebo přes URL: `https://login.microsoftonline.com/{vase-domena}/.well-known/openid-configuration` — vrátí JSON, ve kterém je `tenant_id`.
 
-  scopes: ["User.Read"]
-};
-```
+**Pro správce jednoho tenantu** (např. typický školní administrátor) stačí jeden řádek — žádný přepínač tenantů se nezobrazí, UI je jednoduché.
 
-**Tenant ID** každé školky najdeš v Entře (přihlas se do tenantu → **Overview** → **Tenant ID**). Nebo se zeptej IT správce školy.
-
-Pro **školního správce**, který používá vlastní kopii pro jeden tenant, stačí jen jeden záznam v `managedTenants` — UI se přepne na "single-tenant" režim a žádný přepínač se nezobrazí.
-
-Nahrej upravený `config.js` na GitHub (přes web, stejným způsobem jako v `NAVOD-GITHUB.md`).
+**Pro správce více tenantů** přidej tolik řádků, kolik potřebuješ — v topbaru se objeví přepínač, kterým se mezi nimi přepínáš.
 
 **Za 1–2 minuty** se web aktualizuje.
 

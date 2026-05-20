@@ -49,8 +49,10 @@ Stačí otevřít `index.html` dvojklikem v prohlížeči. Funguje bez instalace
 
 MIT — viz [LICENSE](LICENSE).
 
-## Autor
+## Cíl
 
-Matěj Steigauf (ICT Kladno) s AI asistencí.
+Pomoct českým školám a školkám mít jednoduchý a srozumitelný přehled o bezpečnosti svého Microsoft 365 tenantu — bez drahých nástrojů, bez složitých portálů, otevřeně.
 
-Cílem je pomoct českým školám a školkám mít přehled o bezpečnosti svého tenantu.
+## Příspěvky
+
+Pull requesty vítané. Pokud najdeš chybu nebo máš nápad na vylepšení, založ Issue na GitHubu.

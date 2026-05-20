@@ -2,7 +2,7 @@
 
 Aplikace funguje jako **PWA (Progressive Web App)** — jde si ji nainstalovat na plochu zařízení a vypadá pak jako nativní aplikace. Žádný App Store, žádný Google Play, žádný instalační soubor.
 
-**Předpoklad:** aplikace běží na HTTPS adrese (např. GitHub Pages: `https://matejstei.github.io/skolni-bezpecnost/`).
+**Předpoklad:** aplikace běží na HTTPS adrese (např. GitHub Pages: `https://{tvuj-github-username}.github.io/skolni-bezpecnost/`).
 
 ---
 
@@ -13,7 +13,7 @@ Aplikace funguje jako **PWA (Progressive Web App)** — jde si ji nainstalovat n
 3. V seznamu sjeď dolů a klepni na **Přidat na plochu**.
 4. Pojmenuj zástupce (nebo nech výchozí "Školní bezpečnost") a klepni **Přidat**.
 
-Na ploše se objeví ikona se štítem v Kladno modré. Klepnutím se aplikace otevře **bez prohlížečové lišty** — vypadá jako nativní aplikace.
+Na ploše se objeví ikona se štítem v tmavě modré. Klepnutím se aplikace otevře **bez prohlížečové lišty** — vypadá jako nativní aplikace.
 
 ---
 
