@@ -1,1 +1,27 @@
+# --- OS ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Editory ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- Logy a tempory ---
+*.log
+*.tmp
+*.bak
+
+# --- Citlivé věci (jistota) ---
+# Sem by neměly patřit žádné klíče ani tokeny — ale pro všechny případy:
+*.key
+*.pem
+*.pfx
+secrets.json
+config.local.json
+.env
+.env.local
 
