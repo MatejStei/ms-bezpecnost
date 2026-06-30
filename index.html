@@ -20,8 +20,10 @@
   <meta name="apple-mobile-web-app-title" content="Školní bezpečnost">
 
   <!-- Microsoft Authentication Library (MSAL.js) — zajišťuje přihlášení přes Microsoft.
-       Knihovnu hostuje Microsoft na oficiálním CDN. -->
-  <script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
+       Načítáme z Cloudflare cdnjs (široce dostupný i přes restriktivní firewally).
+       Fallback: pokud cdnjs selže, zkus Microsoft CDN. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft.azure.msal-browser/2.38.3/msal-browser.min.js"
+          onerror="this.onerror=null;var s=document.createElement('script');s.src='https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js';document.head.appendChild(s);"></script>
 
   <!-- Config — vyplň své hodnoty (clientId a tenantId) v souboru config.js -->
   <script src="config.js"></script>
