@@ -861,8 +861,9 @@ let currentCategory = "overview";
 function renderNav() {
   const nav = document.getElementById("nav");
   nav.innerHTML = "";
+  const findings = (typeof getCurrentFindings === "function") ? getCurrentFindings() : demoFindings;
   categories.forEach(cat => {
-    const count = demoFindings.filter(f =>
+    const count = findings.filter(f =>
       cat.id === "overview" ? true : f.category === cat.id
     ).length;
 
@@ -971,7 +972,8 @@ let severityFilter = "all";
 let searchQuery = "";
 
 function getFilteredFindings() {
-  return demoFindings.filter(f => {
+  const source = (typeof getCurrentFindings === "function") ? getCurrentFindings() : demoFindings;
+  return source.filter(f => {
     if (currentCategory !== "overview" && f.category !== currentCategory) return false;
     if (severityFilter !== "all" && f.severity !== severityFilter) return false;
     if (searchQuery) {
@@ -985,14 +987,15 @@ function getFilteredFindings() {
 function renderMain() {
   const main = document.getElementById("main");
   const filtered = getFilteredFindings();
+  const allFindings = (typeof getCurrentFindings === "function") ? getCurrentFindings() : demoFindings;
 
-  const critCount = demoFindings.filter(f =>
+  const critCount = allFindings.filter(f =>
     (currentCategory === "overview" || f.category === currentCategory) && f.severity === "critical"
   ).length;
-  const warnCount = demoFindings.filter(f =>
+  const warnCount = allFindings.filter(f =>
     (currentCategory === "overview" || f.category === currentCategory) && f.severity === "warning"
   ).length;
-  const infoCount = demoFindings.filter(f =>
+  const infoCount = allFindings.filter(f =>
     (currentCategory === "overview" || f.category === currentCategory) && f.severity === "info"
   ).length;
 
@@ -1016,6 +1019,21 @@ function renderMain() {
     </div>
   ` : "";
 
+  // Subtitle: demo režim NEBO info o tenantu + loading stav
+  let subtitle;
+  if (typeof isShowingRealData === "function" && isShowingRealData()) {
+    const tenantNm = activeTenant ? activeTenant.name : "";
+    const refreshTxt = (typeof lastRefreshTime !== "undefined" && lastRefreshTime)
+      ? lastRefreshTime.toLocaleString(currentLang === "cs" ? "cs-CZ" : "en-US")
+      : "";
+    subtitle = (tenantNm ? "Tenant: " + tenantNm + " · " : "") +
+               (refreshTxt ? (currentLang === "cs" ? "Poslední běh: " : "Last run: ") + refreshTxt : "");
+  } else if (typeof isRefreshing !== "undefined" && isRefreshing) {
+    subtitle = currentLang === "cs" ? "Načítám data z Microsoft Graph…" : "Loading data from Microsoft Graph…";
+  } else {
+    subtitle = t("footer.demo");
+  }
+
   main.innerHTML = `
     <div class="topbar">
       <div style="display: flex; align-items: center; gap: 12px;">
@@ -1023,14 +1041,14 @@ function renderMain() {
         <div>
           <h2>${catTitle}</h2>
           <p style="color: var(--text-muted); margin: 4px 0 0; font-size: 13px;">
-            ${t("footer.demo")}
+            ${subtitle}
           </p>
         </div>
       </div>
       <div class="actions">
         ${tenantPickerHtml}
         <button class="btn" id="btn-install" style="display: none;" title="${t("install.title")}">${t("install.button")}</button>
-        <button class="btn" id="btn-refresh">${t("findings.refresh")}</button>
+        <button class="btn" id="btn-refresh"${(typeof isRefreshing !== "undefined" && isRefreshing) ? " disabled" : ""}>${(typeof isRefreshing !== "undefined" && isRefreshing) ? "…" : t("findings.refresh")}</button>
         <button class="btn" id="btn-export">${t("findings.exportCsv")}</button>
         <button class="btn" id="btn-settings" title="${t("settings.button")}">⚙ ${t("settings.button")}</button>
         <button class="btn primary" id="btn-login" disabled title="${t("login.disabled")}">
@@ -1111,7 +1129,13 @@ function renderMain() {
     renderMain();
   });
   document.getElementById("btn-export").addEventListener("click", exportCsv);
-  document.getElementById("btn-refresh").addEventListener("click", () => render());
+  document.getElementById("btn-refresh").addEventListener("click", () => {
+    if (typeof refreshFindings === "function" && isAuthenticated()) {
+      refreshFindings();
+    } else {
+      render();
+    }
+  });
 
   // Mobil: tlačítko ☰ otevírá sidebar
   const menuToggle = document.getElementById("menu-toggle");
@@ -1446,7 +1470,26 @@ async function signIn() {
     sessionStorage.setItem(AUTH_STATE_KEY, state);
     sessionStorage.setItem(AUTH_TENANT_KEY, tenant.id);
 
-    const scopes = (cfg.scopes || ["User.Read"]).concat(["openid", "profile"]);
+    // Komplexní sada scope pro všechny implementované checky.
+    // Microsoft je nezobrazí jednotlivě — uživatel uvidí seznam "what this app can do".
+    // Admin musí dát consent (většina vyžaduje admin-only).
+    const DEFAULT_SCOPES = [
+      "User.Read",
+      "AuditLog.Read.All",                  // sign-in logs, role changes, consents
+      "Directory.Read.All",                 // users, groups, organization, licenses
+      "Group.Read.All",                     // Teams, M365 groups
+      "Policy.Read.All",                    // Conditional Access
+      "UserAuthenticationMethod.Read.All",  // MFA status
+      "MailboxSettings.Read",               // forwarding rules
+      "Application.Read.All",               // OAuth apps, app registrations
+      "SecurityEvents.Read.All",            // Defender alerts, incidents, Secure Score
+      "IdentityRiskEvent.Read.All",         // risk detections
+      "IdentityRiskyUser.Read.All",         // risky users (Identity Protection)
+      "DeviceManagementManagedDevices.Read.All", // Intune managed devices
+      "Organization.Read.All"               // subscribed SKUs / licenses
+    ];
+    const scopes = (cfg.scopes && cfg.scopes.length > 1 ? cfg.scopes : DEFAULT_SCOPES)
+      .concat(["openid", "profile"]);
 
     const url = new URL("https://login.microsoftonline.com/" + tenant.id + "/oauth2/v2.0/authorize");
     url.searchParams.set("client_id", cfg.clientId);
@@ -1525,7 +1568,731 @@ async function getAccessToken() {
 }
 
 /* ==========================================================================
-   7) MAIN RENDER — spojí vše dohromady
+   7) GRAPH API + CHECK FRAMEWORK
+
+   Každý "check" je malá funkce, která:
+     - dostane access token + info o tenantu
+     - zavolá Microsoft Graph API
+     - vrátí pole "findings" (zjištění)
+   Findings se pak sjednotí a vykreslí v dashboardu místo demo dat.
+
+   Checky deklarují své kategorie a license requirement — pokud Graph
+   vrátí 403/Forbidden (chybí licence/oprávnění), check místo erroru
+   vrátí informativní finding "tato kontrola vyžaduje X".
+   ========================================================================== */
+
+const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
+const registeredChecks = [];
+let lastFindings = [];           // poslední běh – nahrazuje demoFindings když jsme přihlášeni
+let lastRefreshTime = null;
+let isRefreshing = false;
+
+function registerCheck(def) {
+  registeredChecks.push(def);
+}
+
+// Voláme jako: const data = await graphGet("/auditLogs/signIns?$top=20", token);
+async function graphGet(path, token) {
+  const url = path.startsWith("http") ? path : GRAPH_BASE + path;
+  const res = await fetch(url, {
+    headers: { "Authorization": "Bearer " + token, "Accept": "application/json" }
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    const err = new Error("HTTP " + res.status + ": " + txt.slice(0, 200));
+    err.status = res.status;
+    err.body = txt;
+    throw err;
+  }
+  return res.json();
+}
+
+// Stáhne všechny stránky (sleduje @odata.nextLink). limit chrání před nekonečnou smyčkou.
+async function graphGetAll(path, token, limit = 500) {
+  let items = [];
+  let next = path;
+  while (next && items.length < limit) {
+    const data = await graphGet(next, token);
+    if (Array.isArray(data.value)) items = items.concat(data.value);
+    next = data["@odata.nextLink"] || null;
+    if (next && next.startsWith("https://graph.microsoft.com/v1.0")) {
+      next = next.substring("https://graph.microsoft.com/v1.0".length);
+    }
+  }
+  return items.slice(0, limit);
+}
+
+// Spustí všechny registrované checky a vrátí sjednocené findings.
+async function runAllChecks() {
+  const token = await getAccessToken();
+  if (!token) {
+    console.warn("[checks] Nelze získat token, přeskakuji.");
+    return [];
+  }
+  const tenant = getActiveTenant();
+  const out = [];
+
+  for (const check of registeredChecks) {
+    if (check.enabled === false) continue;
+    console.log("[checks] Spouštím:", check.id);
+    try {
+      const result = await check.run(token, tenant);
+      if (result && Array.isArray(result.findings)) {
+        for (const f of result.findings) {
+          out.push({
+            id: f.id || (check.id + "-" + Math.random().toString(36).slice(2, 8)),
+            severity: f.severity || "info",
+            category: f.category || check.category || "misc",
+            when: f.when || new Date().toISOString(),
+            message: f.message,
+            messageEn: f.messageEn || f.message,
+            detail: f.detail || "",
+            detailEn: f.detailEn || f.detail || "",
+            checkId: check.id
+          });
+        }
+      }
+    } catch (e) {
+      console.error("[checks]", check.id, "failed:", e);
+      if (e.status === 403) {
+        out.push({
+          id: check.id + "-perm",
+          severity: "info",
+          category: check.category || "misc",
+          when: new Date().toISOString(),
+          message: check.name + ": chybí oprávnění nebo licence (HTTP 403)",
+          messageEn: check.name + ": permission or license missing (HTTP 403)",
+          detail: check.requiredLicense ? "Vyžaduje: " + check.requiredLicense : "Zkontroluj admin consent v Entře",
+          detailEn: check.requiredLicense ? "Requires: " + check.requiredLicense : "Check admin consent in Entra"
+        });
+      } else if (e.status === 401) {
+        out.push({
+          id: check.id + "-auth",
+          severity: "warning",
+          category: check.category || "misc",
+          when: new Date().toISOString(),
+          message: check.name + ": token expiroval, přihlas se znovu",
+          messageEn: check.name + ": token expired, please re-login"
+        });
+      }
+      // Jiné chyby (síť, 5xx) zalogujeme, ale nepřidáváme do findings
+    }
+  }
+  return out;
+}
+
+// Refresh dat z Graphu — volá se po loginu a tlačítkem Obnovit.
+async function refreshFindings() {
+  if (!isAuthenticated()) return;
+  if (isRefreshing) return;
+  isRefreshing = true;
+  render();
+  try {
+    lastFindings = await runAllChecks();
+    lastRefreshTime = new Date();
+    console.log("[checks] Dokončeno, nálezů:", lastFindings.length);
+  } catch (e) {
+    console.error("[checks] refresh failed:", e);
+  } finally {
+    isRefreshing = false;
+    render();
+  }
+}
+
+// Zdroj findings pro UI — reálné pokud máme, jinak demo.
+function getCurrentFindings() {
+  return isAuthenticated() && lastFindings.length > 0 ? lastFindings : demoFindings;
+}
+
+function isShowingRealData() {
+  return isAuthenticated() && lastFindings.length > 0;
+}
+
+/* ----------------- Registrované checky ----------------- */
+
+// CHECK 1: Riziková přihlášení (Identity Protection sign-in risk)
+// Hledá sign-iny s ne-zero risk levelem — netypické lokace, anonymní IP, atd.
+registerCheck({
+  id: "risky-signins",
+  name: "Riziková přihlášení",
+  category: "threats",
+  requiredLicense: "Entra ID P1+",
+  run: async (token, tenant) => {
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const url = "/auditLogs/signIns?$top=50&$filter=createdDateTime ge " + since +
+                " and riskLevelDuringSignIn ne 'none'&$orderby=createdDateTime desc";
+    const items = await graphGetAll(url, token, 100);
+
+    const findings = items.map(s => {
+      const risk = s.riskLevelDuringSignIn || "low";
+      const sev = risk === "high" ? "critical" : (risk === "medium" ? "warning" : "info");
+      const loc = s.location ? [s.location.city, s.location.countryOrRegion].filter(Boolean).join(", ") : "?";
+      return {
+        severity: sev,
+        when: s.createdDateTime,
+        message: "Rizikové přihlášení: " + (s.userPrincipalName || "neznámý uživatel") + " z " + loc,
+        messageEn: "Risky sign-in: " + (s.userPrincipalName || "unknown user") + " from " + loc,
+        detail: "Risk: " + risk + " · App: " + (s.appDisplayName || "?") + " · IP: " + (s.ipAddress || "?"),
+        detailEn: "Risk: " + risk + " · App: " + (s.appDisplayName || "?") + " · IP: " + (s.ipAddress || "?")
+      };
+    });
+    return { findings };
+  }
+});
+
+// CHECK 2: Změny admin rolí (přidání/odebrání člena z role)
+registerCheck({
+  id: "role-changes",
+  name: "Změny admin rolí",
+  category: "identity",
+  run: async (token, tenant) => {
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const url = "/auditLogs/directoryAudits?$top=50&$filter=activityDateTime ge " + since +
+                " and (activityDisplayName eq 'Add member to role' or activityDisplayName eq 'Remove member from role')" +
+                "&$orderby=activityDateTime desc";
+    const items = await graphGetAll(url, token, 100);
+
+    const findings = items.map(a => {
+      const targetUser = (a.targetResources || []).find(r => r.type === "User");
+      const role = (a.targetResources || []).find(r => r.type === "Role");
+      const roleName = role?.displayName || "?";
+      const isGlobalAdmin = /global admin/i.test(roleName);
+      const isAdd = a.activityDisplayName.includes("Add");
+      const sev = isGlobalAdmin && isAdd ? "critical" : (isAdd ? "warning" : "info");
+      const action = isAdd ? "přidán do role" : "odebrán z role";
+      const actionEn = isAdd ? "added to role" : "removed from role";
+      return {
+        severity: sev,
+        when: a.activityDateTime,
+        message: (targetUser?.userPrincipalName || "?") + " " + action + " " + roleName,
+        messageEn: (targetUser?.userPrincipalName || "?") + " " + actionEn + " " + roleName,
+        detail: "Provedl: " + (a.initiatedBy?.user?.userPrincipalName || a.initiatedBy?.app?.displayName || "?"),
+        detailEn: "By: " + (a.initiatedBy?.user?.userPrincipalName || a.initiatedBy?.app?.displayName || "?")
+      };
+    });
+    return { findings };
+  }
+});
+
+// CHECK 3: OAuth consenty (uživatelé schválili aplikaci s oprávněními)
+registerCheck({
+  id: "app-consents",
+  name: "OAuth consenty",
+  category: "apps",
+  run: async (token, tenant) => {
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const url = "/auditLogs/directoryAudits?$top=50&$filter=activityDateTime ge " + since +
+                " and activityDisplayName eq 'Consent to application'&$orderby=activityDateTime desc";
+    const items = await graphGetAll(url, token, 100);
+
+    // Vyhodnoť rizikovost podle požadovaných permissions
+    const HIGH_RISK_PERMS = /Mail\.|Files\.ReadWrite|Sites\.|User\.ReadWrite|Directory\.|application impersonation/i;
+
+    const findings = items.map(a => {
+      const target = (a.targetResources || [])[0];
+      const appName = target?.displayName || "neznámá aplikace";
+      const modProps = target?.modifiedProperties || [];
+      const permsProp = modProps.find(p => /scope|permission/i.test(p.displayName));
+      const permsRaw = (permsProp?.newValue || "").replace(/"/g, "");
+      const isHighRisk = HIGH_RISK_PERMS.test(permsRaw);
+      return {
+        severity: isHighRisk ? "warning" : "info",
+        when: a.activityDateTime,
+        message: "Consent: aplikace " + appName + (isHighRisk ? " (vysoká oprávnění)" : ""),
+        messageEn: "Consent: app " + appName + (isHighRisk ? " (high permissions)" : ""),
+        detail: "Schválil: " + (a.initiatedBy?.user?.userPrincipalName || "?") + " · Perms: " + (permsRaw.slice(0, 100) || "?"),
+        detailEn: "Approved by: " + (a.initiatedBy?.user?.userPrincipalName || "?") + " · Perms: " + (permsRaw.slice(0, 100) || "?")
+      };
+    });
+    return { findings };
+  }
+});
+
+// CHECK 4: Uživatelé bez registrovaného MFA
+registerCheck({
+  id: "mfa-status",
+  name: "MFA registrace",
+  category: "identity",
+  run: async (token, tenant) => {
+    const items = await graphGetAll("/reports/authenticationMethods/userRegistrationDetails?$top=500", token, 1000);
+
+    const noMfa = items.filter(u => !u.isMfaRegistered);
+    const adminsNoMfa = noMfa.filter(u =>
+      Array.isArray(u.userType) ? false : u.userType !== "Guest"
+    ).filter(u => /admin/i.test(u.userPrincipalName || "") || u.isAdmin);
+
+    const findings = [];
+
+    if (adminsNoMfa.length > 0) {
+      findings.push({
+        severity: "critical",
+        when: new Date().toISOString(),
+        message: adminsNoMfa.length + " admin účtů nemá registrované MFA",
+        messageEn: adminsNoMfa.length + " admin accounts without MFA",
+        detail: adminsNoMfa.slice(0, 5).map(u => u.userPrincipalName).join(", ") + (adminsNoMfa.length > 5 ? " a další" : ""),
+        detailEn: adminsNoMfa.slice(0, 5).map(u => u.userPrincipalName).join(", ") + (adminsNoMfa.length > 5 ? " and more" : "")
+      });
+    }
+
+    if (noMfa.length > 0) {
+      findings.push({
+        severity: noMfa.length > 100 ? "warning" : "info",
+        when: new Date().toISOString(),
+        message: noMfa.length + " uživatelů celkem nemá registrované MFA",
+        messageEn: noMfa.length + " users without MFA registered",
+        detail: "Často to jsou studentské A1 účty — zvaž zda jim povinné MFA nasadit",
+        detailEn: "Often A1 student accounts — consider enforcing MFA"
+      });
+    }
+
+    return { findings };
+  }
+});
+
+// CHECK 5: Externí přeposílání e-mailu (klasický exfiltration signál)
+// Tahá inbox rules pro každého uživatele — pomalý check, limitujeme na prvních N uživatelů.
+registerCheck({
+  id: "forwarding-rules",
+  name: "Přeposílání pošty",
+  category: "mail",
+  run: async (token, tenant) => {
+    // Vezmi prvních 50 aktivních uživatelů (ne hosty)
+    const users = await graphGetAll(
+      "/users?$top=50&$filter=accountEnabled eq true and userType eq 'Member'&$select=id,userPrincipalName,displayName",
+      token, 50
+    );
+
+    const findings = [];
+    for (const u of users) {
+      try {
+        const data = await graphGet("/users/" + u.id + "/mailFolders/inbox/messageRules", token);
+        const rules = data.value || [];
+        for (const rule of rules) {
+          if (!rule.isEnabled) continue;
+          const forwardTo = (rule.actions?.forwardTo || rule.actions?.forwardAsAttachmentTo || rule.actions?.redirectTo || []);
+          for (const recip of forwardTo) {
+            const addr = recip.emailAddress?.address || "";
+            const domain = addr.split("@")[1] || "";
+            const isExternal = domain && !addr.endsWith("@" + (tenant.name || "")) && !/onmicrosoft\.com$/i.test(addr);
+            if (isExternal) {
+              findings.push({
+                severity: "critical",
+                when: new Date().toISOString(),
+                message: "Externí přeposílací pravidlo: " + u.userPrincipalName + " → " + addr,
+                messageEn: "External forward rule: " + u.userPrincipalName + " → " + addr,
+                detail: "Pravidlo: \"" + rule.displayName + "\"",
+                detailEn: "Rule: \"" + rule.displayName + "\""
+              });
+            }
+          }
+        }
+      } catch (e) {
+        // Některé účty (sdílené schránky, atd.) nemusí jít načíst — přeskoč
+        if (e.status !== 403 && e.status !== 404) {
+          console.warn("[forwarding-rules] skip user:", u.userPrincipalName, e.message);
+        }
+      }
+    }
+    return { findings };
+  }
+});
+
+// CHECK 6: Licence — využití SKU, plýtvání
+registerCheck({
+  id: "licenses",
+  name: "Licenční využití",
+  category: "overview",
+  run: async (token, tenant) => {
+    const skus = await graphGetAll("/subscribedSkus", token, 200);
+    const findings = [];
+    let totalWaste = 0;
+
+    for (const sku of skus) {
+      const total = sku.prepaidUnits?.enabled || 0;
+      const used = sku.consumedUnits || 0;
+      const unused = total - used;
+      if (total === 0) continue;
+      if (unused >= 5) {
+        totalWaste += unused;
+        findings.push({
+          severity: unused >= 20 ? "warning" : "info",
+          when: new Date().toISOString(),
+          message: "Nevyužité licence: " + sku.skuPartNumber + " — " + unused + " z " + total,
+          messageEn: "Unused licenses: " + sku.skuPartNumber + " — " + unused + " of " + total,
+          detail: "Využito: " + used + " · Volné: " + unused,
+          detailEn: "Used: " + used + " · Free: " + unused
+        });
+      }
+    }
+
+    if (skus.length > 0) {
+      findings.unshift({
+        severity: "info",
+        when: new Date().toISOString(),
+        message: "Tenant má " + skus.length + " typů licencí, celkem " + totalWaste + " nevyužitých",
+        messageEn: "Tenant has " + skus.length + " license types, " + totalWaste + " unused total"
+      });
+    }
+    return { findings };
+  }
+});
+
+// CHECK 7: Nově vytvořené účty (posledních 7 dní)
+registerCheck({
+  id: "new-users",
+  name: "Nové účty",
+  category: "identity",
+  run: async (token, tenant) => {
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const url = "/users?$filter=createdDateTime ge " + since +
+                "&$select=displayName,userPrincipalName,createdDateTime,userType,accountEnabled&$top=100";
+    const users = await graphGetAll(url, token, 200);
+
+    const findings = users.map(u => ({
+      severity: "info",
+      when: u.createdDateTime,
+      message: "Nový účet: " + (u.displayName || u.userPrincipalName) + " (" + (u.userType || "Member") + ")",
+      messageEn: "New account: " + (u.displayName || u.userPrincipalName) + " (" + (u.userType || "Member") + ")",
+      detail: "UPN: " + u.userPrincipalName + " · Enabled: " + u.accountEnabled,
+      detailEn: "UPN: " + u.userPrincipalName + " · Enabled: " + u.accountEnabled
+    }));
+    return { findings };
+  }
+});
+
+// CHECK 8: Hosté bez přihlášení déle než 90 dní
+registerCheck({
+  id: "stale-guests",
+  name: "Staří hosté",
+  category: "guests",
+  run: async (token, tenant) => {
+    const url = "/users?$filter=userType eq 'Guest'&$select=displayName,userPrincipalName,createdDateTime,signInActivity&$top=200";
+    const guests = await graphGetAll(url, token, 500);
+    const cutoff = Date.now() - 90 * 24 * 60 * 60 * 1000;
+
+    const stale = guests.filter(g => {
+      const last = g.signInActivity?.lastSignInDateTime;
+      if (!last) {
+        // Pokud nikdy nebyl přihlášen — zkontroluj kdy byl vytvořen
+        return new Date(g.createdDateTime).getTime() < cutoff;
+      }
+      return new Date(last).getTime() < cutoff;
+    });
+
+    const findings = [];
+    if (stale.length > 0) {
+      findings.push({
+        severity: stale.length > 20 ? "warning" : "info",
+        when: new Date().toISOString(),
+        message: stale.length + " externích hostů bez přihlášení déle než 90 dní",
+        messageEn: stale.length + " external guests with no sign-in for 90+ days",
+        detail: "Doporučení: zkontrolovat a případně odebrat. Hostů celkem: " + guests.length,
+        detailEn: "Recommendation: review and remove. Total guests: " + guests.length
+      });
+    }
+    return { findings };
+  }
+});
+
+// CHECK 9: Staré/neaktivní skupiny a Teams
+registerCheck({
+  id: "stale-teams",
+  name: "Neaktivní Teams/Groups",
+  category: "apps",
+  run: async (token, tenant) => {
+    const groups = await graphGetAll(
+      "/groups?$select=id,displayName,createdDateTime,renewedDateTime,resourceProvisioningOptions&$top=200",
+      token, 500
+    );
+    const cutoff = Date.now() - 180 * 24 * 60 * 60 * 1000;
+    const stale = groups.filter(g => {
+      const renewed = g.renewedDateTime ? new Date(g.renewedDateTime).getTime() : new Date(g.createdDateTime).getTime();
+      return renewed < cutoff;
+    });
+
+    const findings = [];
+    if (stale.length > 0) {
+      findings.push({
+        severity: "info",
+        when: new Date().toISOString(),
+        message: stale.length + " skupin neobnoveno déle než 180 dní",
+        messageEn: stale.length + " groups not renewed for 180+ days",
+        detail: "Zvaž lifecycle policy nebo manuální cleanup",
+        detailEn: "Consider lifecycle policy or manual cleanup"
+      });
+    }
+    return { findings };
+  }
+});
+
+// CHECK 10: Intune zařízení — non-compliant + stale sync
+registerCheck({
+  id: "devices",
+  name: "Compliance zařízení",
+  category: "devices",
+  requiredLicense: "Intune (EMS/M365 E3+)",
+  run: async (token, tenant) => {
+    const devices = await graphGetAll(
+      "/deviceManagement/managedDevices?$select=deviceName,complianceState,lastSyncDateTime,operatingSystem,userPrincipalName&$top=200",
+      token, 500
+    );
+    const nonCompliant = devices.filter(d => d.complianceState !== "compliant" && d.complianceState !== "unknown");
+    const staleCutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const stale = devices.filter(d => d.lastSyncDateTime && new Date(d.lastSyncDateTime).getTime() < staleCutoff);
+
+    const findings = [];
+    if (nonCompliant.length > 0) {
+      findings.push({
+        severity: nonCompliant.length > 5 ? "warning" : "info",
+        when: new Date().toISOString(),
+        message: nonCompliant.length + " zařízení mimo compliance",
+        messageEn: nonCompliant.length + " devices non-compliant",
+        detail: nonCompliant.slice(0, 3).map(d => d.deviceName + " (" + d.complianceState + ")").join(", "),
+        detailEn: nonCompliant.slice(0, 3).map(d => d.deviceName + " (" + d.complianceState + ")").join(", ")
+      });
+    }
+    if (stale.length > 0) {
+      findings.push({
+        severity: "info",
+        when: new Date().toISOString(),
+        message: stale.length + " zařízení nesync déle než 30 dní",
+        messageEn: stale.length + " devices not synced for 30+ days"
+      });
+    }
+    return { findings };
+  }
+});
+
+// CHECK 11: Hesla bliží se expiraci (jednoduchá heuristika)
+registerCheck({
+  id: "passwords",
+  name: "Expirace hesel",
+  category: "identity",
+  run: async (token, tenant) => {
+    const users = await graphGetAll(
+      "/users?$filter=accountEnabled eq true and userType eq 'Member'&$select=userPrincipalName,lastPasswordChangeDateTime,passwordPolicies&$top=200",
+      token, 500
+    );
+    // Předpokládáme default tenant policy 90 dní. Pokud uživatel má DisablePasswordExpiration, ignoruj.
+    const POLICY_DAYS = 90;
+    const cutoff = Date.now() - (POLICY_DAYS - 14) * 24 * 60 * 60 * 1000;
+
+    const expiringSoon = users.filter(u => {
+      if ((u.passwordPolicies || "").includes("DisablePasswordExpiration")) return false;
+      const last = u.lastPasswordChangeDateTime;
+      if (!last) return false;
+      return new Date(last).getTime() < cutoff;
+    });
+
+    const findings = [];
+    if (expiringSoon.length > 0) {
+      findings.push({
+        severity: "info",
+        when: new Date().toISOString(),
+        message: expiringSoon.length + " uživatelům brzy expiruje heslo (do 14 dní)",
+        messageEn: expiringSoon.length + " users have passwords expiring within 14 days",
+        detail: "Předpokládaná policy: " + POLICY_DAYS + " dní",
+        detailEn: "Assumed policy: " + POLICY_DAYS + " days"
+      });
+    }
+    return { findings };
+  }
+});
+
+// CHECK 12: Conditional Access drift (změny v politikách)
+registerCheck({
+  id: "ca-drift",
+  name: "Změny Conditional Access",
+  category: "identity",
+  run: async (token, tenant) => {
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const url = "/auditLogs/directoryAudits?$top=100&$filter=activityDateTime ge " + since +
+                " and category eq 'Policy'&$orderby=activityDateTime desc";
+    const items = await graphGetAll(url, token, 200);
+
+    const caChanges = items.filter(a =>
+      /conditional access/i.test(a.activityDisplayName || "") ||
+      (a.targetResources || []).some(r => /Conditional Access/i.test(r.displayName || ""))
+    );
+
+    const findings = caChanges.map(a => ({
+      severity: /delete|disable/i.test(a.activityDisplayName) ? "warning" : "info",
+      when: a.activityDateTime,
+      message: "CA změna: " + a.activityDisplayName,
+      messageEn: "CA change: " + a.activityDisplayName,
+      detail: "Provedl: " + (a.initiatedBy?.user?.userPrincipalName || "?") +
+              " · Policy: " + ((a.targetResources || [])[0]?.displayName || "?"),
+      detailEn: "By: " + (a.initiatedBy?.user?.userPrincipalName || "?") +
+                " · Policy: " + ((a.targetResources || [])[0]?.displayName || "?")
+    }));
+    return { findings };
+  }
+});
+
+// CHECK 13: Mailbox permissions changes (z audit logu)
+registerCheck({
+  id: "mailbox-perms",
+  name: "Změny oprávnění schránek",
+  category: "mail",
+  run: async (token, tenant) => {
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const url = "/auditLogs/directoryAudits?$top=50&$filter=activityDateTime ge " + since +
+                " and (activityDisplayName eq 'Add-MailboxPermission' or activityDisplayName eq 'Add-RecipientPermission')" +
+                "&$orderby=activityDateTime desc";
+    const items = await graphGetAll(url, token, 100);
+
+    const findings = items.map(a => ({
+      severity: "warning",
+      when: a.activityDateTime,
+      message: "Mailbox permission: " + a.activityDisplayName,
+      messageEn: "Mailbox permission: " + a.activityDisplayName,
+      detail: "Cíl: " + ((a.targetResources || [])[0]?.displayName || "?") +
+              " · Provedl: " + (a.initiatedBy?.user?.userPrincipalName || "?"),
+      detailEn: "Target: " + ((a.targetResources || [])[0]?.displayName || "?") +
+                " · By: " + (a.initiatedBy?.user?.userPrincipalName || "?")
+    }));
+    return { findings };
+  }
+});
+
+// CHECK 14: App Registrations — expirující secrets/certs, vysoká oprávnění
+registerCheck({
+  id: "app-registrations",
+  name: "App Registrations",
+  category: "apps",
+  run: async (token, tenant) => {
+    const apps = await graphGetAll(
+      "/applications?$select=id,displayName,passwordCredentials,keyCredentials,requiredResourceAccess&$top=200",
+      token, 500
+    );
+    const findings = [];
+    const now = Date.now();
+    const cutoff30 = now + 30 * 24 * 60 * 60 * 1000;
+
+    for (const app of apps) {
+      // Expirující secrets
+      const expiringSecrets = (app.passwordCredentials || []).filter(c => {
+        const end = c.endDateTime ? new Date(c.endDateTime).getTime() : 0;
+        return end > 0 && end < cutoff30;
+      });
+      if (expiringSecrets.length > 0) {
+        findings.push({
+          severity: "warning",
+          when: new Date().toISOString(),
+          message: "App '" + app.displayName + "' má " + expiringSecrets.length + " brzy expirujících secretů",
+          messageEn: "App '" + app.displayName + "' has " + expiringSecrets.length + " secrets expiring soon",
+          detail: "Expirace do 30 dní — obnov nebo zruš",
+          detailEn: "Expires within 30 days — renew or revoke"
+        });
+      }
+    }
+    return { findings };
+  }
+});
+
+// CHECK 15 (Defender): Microsoft Secure Score
+registerCheck({
+  id: "secure-score",
+  name: "Microsoft Secure Score",
+  category: "threats",
+  run: async (token, tenant) => {
+    const data = await graphGet("/security/secureScores?$top=2", token);
+    const scores = data.value || [];
+    if (scores.length === 0) return { findings: [] };
+
+    const current = scores[0];
+    const yesterday = scores[1];
+    const score = current.currentScore || 0;
+    const max = current.maxScore || 100;
+    const pct = max > 0 ? Math.round((score / max) * 100) : 0;
+    const delta = yesterday ? Math.round(score - (yesterday.currentScore || 0)) : 0;
+    const deltaStr = delta > 0 ? "+" + delta : (delta < 0 ? String(delta) : "±0");
+
+    return { findings: [{
+      severity: pct < 50 ? "warning" : "info",
+      when: current.createdDateTime || new Date().toISOString(),
+      message: "Secure Score: " + Math.round(score) + " / " + Math.round(max) + " (" + pct + "%)",
+      messageEn: "Secure Score: " + Math.round(score) + " / " + Math.round(max) + " (" + pct + "%)",
+      detail: "Změna oproti minulému měření: " + deltaStr,
+      detailEn: "Change vs previous measurement: " + deltaStr
+    }] };
+  }
+});
+
+// CHECK 16 (Defender): Security Alerts
+registerCheck({
+  id: "security-alerts",
+  name: "Defender alerty",
+  category: "threats",
+  requiredLicense: "Defender P1/P2",
+  run: async (token, tenant) => {
+    const data = await graphGet("/security/alerts_v2?$top=30&$orderby=createdDateTime desc", token);
+    const alerts = data.value || [];
+
+    const findings = alerts
+      .filter(a => a.status === "new" || a.status === "inProgress")
+      .map(a => {
+        const sev = a.severity === "high" ? "critical" : (a.severity === "medium" ? "warning" : "info");
+        return {
+          severity: sev,
+          when: a.createdDateTime,
+          message: "Defender: " + a.title,
+          messageEn: "Defender: " + a.title,
+          detail: "Severity: " + a.severity + " · Source: " + (a.serviceSource || "?") + " · Status: " + a.status,
+          detailEn: "Severity: " + a.severity + " · Source: " + (a.serviceSource || "?") + " · Status: " + a.status
+        };
+      });
+    return { findings };
+  }
+});
+
+// CHECK 17 (Defender): Security Incidents
+registerCheck({
+  id: "security-incidents",
+  name: "Defender incidenty",
+  category: "threats",
+  requiredLicense: "Defender P2 / Sentinel",
+  run: async (token, tenant) => {
+    const data = await graphGet("/security/incidents?$top=20&$filter=status eq 'active'&$orderby=createdDateTime desc", token);
+    const incidents = data.value || [];
+    const findings = incidents.map(i => ({
+      severity: i.severity === "high" ? "critical" : (i.severity === "medium" ? "warning" : "info"),
+      when: i.createdDateTime,
+      message: "Incident: " + (i.displayName || "?"),
+      messageEn: "Incident: " + (i.displayName || "?"),
+      detail: "Severity: " + i.severity + " · Classification: " + (i.classification || "unknown"),
+      detailEn: "Severity: " + i.severity + " · Classification: " + (i.classification || "unknown")
+    }));
+    return { findings };
+  }
+});
+
+// CHECK 18 (Identity Protection): Risky Users
+registerCheck({
+  id: "risky-users",
+  name: "Rizikoví uživatelé",
+  category: "threats",
+  requiredLicense: "Entra ID P2",
+  run: async (token, tenant) => {
+    const data = await graphGet("/identityProtection/riskyUsers?$top=50&$filter=riskLevel ne 'none' and riskState ne 'remediated'", token);
+    const users = data.value || [];
+    const findings = users.map(u => {
+      const sev = u.riskLevel === "high" ? "critical" : (u.riskLevel === "medium" ? "warning" : "info");
+      return {
+        severity: sev,
+        when: u.riskLastUpdatedDateTime || new Date().toISOString(),
+        message: "Rizikový uživatel: " + (u.userPrincipalName || "?"),
+        messageEn: "Risky user: " + (u.userPrincipalName || "?"),
+        detail: "Risk: " + u.riskLevel + " · State: " + u.riskState + " · Detail: " + (u.riskDetail || "—"),
+        detailEn: "Risk: " + u.riskLevel + " · State: " + u.riskState + " · Detail: " + (u.riskDetail || "—")
+      };
+    });
+    return { findings };
+  }
+});
+
+/* ==========================================================================
+   8) MAIN RENDER — spojí vše dohromady
    ========================================================================== */
 
 function render() {
@@ -1732,6 +2499,9 @@ initAuth().then(() => {
   if (!isConfigFilled()) {
     // Otevři modal jakmile DOM nastartuje (kvůli porovnání kdy se naloadovaly listenery)
     setTimeout(openSettings, 100);
+  } else if (isAuthenticated() && typeof refreshFindings === "function") {
+    // Pokud jsme přihlášeni (např. po návratu z redirect login), automaticky stáhni data
+    setTimeout(refreshFindings, 200);
   }
 });
 
