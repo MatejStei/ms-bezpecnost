@@ -33,21 +33,69 @@
        ======================================================================= */
 
     :root {
-      /* Barevná paleta — navy blue + white */
-      --bg: #f4f7fb;           /* jemný modro-šedý podklad */
-      --panel: #ffffff;        /* bílé karty */
-      --border: #d6e0ec;       /* jemná modravá čára */
-      --text: #0f1f3a;         /* tmavě navy místo čisté černé */
-      --text-muted: #5a6b82;   /* tlumená modro-šedá */
-      --accent: #003d82;       /* navy */
-      --accent-hover: #002b5c; /* tmavší navy pro hover */
-      --accent-light: #e8f0fa; /* světlý modrý hover podklad */
+      /* Světlé téma (default) */
+      --bg: #f4f7fb;
+      --panel: #ffffff;
+      --border: #d6e0ec;
+      --text: #0f1f3a;
+      --text-muted: #5a6b82;
+      --accent: #003d82;
+      --accent-hover: #002b5c;
+      --accent-light: #e8f0fa;
       --critical: #dc2626;
+      --critical-bg: #fee2e2;
+      --critical-tint: #fef2f2;
       --warning: #f59e0b;
+      --warning-bg: #fef3c7;
       --info: #0891b2;
+      --info-bg: #cffafe;
       --ok: #16a34a;
       --shadow: 0 1px 2px rgba(10, 30, 70, 0.04), 0 2px 8px rgba(10, 30, 70, 0.04);
       --radius: 8px;
+    }
+
+    /* Dark theme — aktivuje se atributem data-theme="dark" na <html> */
+    [data-theme="dark"] {
+      --bg: #0d1117;            /* GitHub-like dark */
+      --panel: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --accent: #4493f8;        /* světlejší modrá pro tmavé pozadí */
+      --accent-hover: #2f81f7;
+      --accent-light: #1f2c3f;
+      --critical: #f85149;
+      --critical-bg: #3d1517;
+      --critical-tint: #1c1014;
+      --warning: #d29922;
+      --warning-bg: #3d2e10;
+      --info: #58a6ff;
+      --info-bg: #0d2540;
+      --ok: #3fb950;
+      --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 2px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Detekce systémového dark mode jako default (uživatel pak může přepnout) */
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #0d1117;
+        --panel: #161b22;
+        --border: #30363d;
+        --text: #e6edf3;
+        --text-muted: #8b949e;
+        --accent: #4493f8;
+        --accent-hover: #2f81f7;
+        --accent-light: #1f2c3f;
+        --critical: #f85149;
+        --critical-bg: #3d1517;
+        --critical-tint: #1c1014;
+        --warning: #d29922;
+        --warning-bg: #3d2e10;
+        --info: #58a6ff;
+        --info-bg: #0d2540;
+        --ok: #3fb950;
+        --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 2px 12px rgba(0, 0, 0, 0.3);
+      }
     }
 
     * { box-sizing: border-box; }
@@ -280,6 +328,7 @@
     .finding-row {
       padding: 12px 18px;
       border-bottom: 1px solid var(--border);
+      border-left: 3px solid transparent;
       display: grid;
       grid-template-columns: 100px 1fr auto;
       gap: 12px;
@@ -287,6 +336,22 @@
     }
     .finding-row:last-child { border-bottom: none; }
     .finding-row:hover { background: var(--accent-light); }
+    /* Kritické nálezy — silnější vizuální váha */
+    .finding-row.critical {
+      background: var(--critical-tint);
+      border-left-color: var(--critical);
+    }
+    .finding-row.critical:hover { background: var(--critical-bg); }
+    .finding-row.critical .finding-msg > div:first-child {
+      font-weight: 700;
+      color: var(--critical);
+    }
+    .finding-row.warning {
+      border-left-color: var(--warning);
+    }
+    .finding-row.warning .finding-msg > div:first-child {
+      font-weight: 600;
+    }
 
     .severity {
       display: inline-block;
@@ -297,9 +362,9 @@
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
-    .severity.critical { background: #fee2e2; color: var(--critical); }
-    .severity.warning { background: #fef3c7; color: #b45309; }
-    .severity.info { background: #cffafe; color: var(--info); }
+    .severity.critical { background: var(--critical-bg); color: var(--critical); }
+    .severity.warning { background: var(--warning-bg); color: var(--warning); }
+    .severity.info { background: var(--info-bg); color: var(--info); }
 
     .finding-msg {
       font-size: 13px;
@@ -601,9 +666,16 @@
     </nav>
 
     <div class="sidebar-footer">
-      <div class="lang-switch">
-        <button data-lang="cs" class="active">CS</button>
-        <button data-lang="en">EN</button>
+      <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+        <div class="lang-switch">
+          <button data-lang="cs" class="active">CS</button>
+          <button data-lang="en">EN</button>
+        </div>
+        <button id="theme-toggle" title="Přepnout světlý/tmavý režim" style="
+          background: var(--panel); border: 1px solid var(--border);
+          color: var(--text-muted); border-radius: 5px;
+          padding: 4px 10px; cursor: pointer; font-size: 14px;
+          line-height: 1; min-height: 26px;">🌓</button>
       </div>
       <div style="margin-top: 10px;" id="tenant-info" data-i18n="app.notConnected">
         Nepřipojeno
@@ -731,7 +803,10 @@ const translations = {
     "settings.privacyNote": "Údaje žijí jen v tomto prohlížeči. Žádný server, žádné GitHub.",
     "settings.invalidClientId": "Vyplň Client ID (formát GUID, 36 znaků s pomlčkami).",
     "settings.invalidTenantId": "Alespoň jeden tenant musí mít vyplněné Tenant ID.",
-    "settings.confirmClear": "Opravdu smazat všechny uložené údaje? Tuto akci nelze vrátit."
+    "settings.confirmClear": "Opravdu smazat všechny uložené údaje? Tuto akci nelze vrátit.",
+    "theme.toggle": "Přepnout světlý/tmavý režim",
+    "theme.light": "Světlý",
+    "theme.dark": "Tmavý"
   },
   en: {
     "app.title": "School Security",
@@ -802,7 +877,10 @@ const translations = {
     "settings.privacyNote": "Values live only in this browser. No server, no GitHub.",
     "settings.invalidClientId": "Fill in Client ID (GUID format, 36 chars with dashes).",
     "settings.invalidTenantId": "At least one tenant must have a Tenant ID.",
-    "settings.confirmClear": "Really delete all saved values? This cannot be undone."
+    "settings.confirmClear": "Really delete all saved values? This cannot be undone.",
+    "theme.toggle": "Toggle light/dark mode",
+    "theme.light": "Light",
+    "theme.dark": "Dark"
   }
 };
 
@@ -837,6 +915,40 @@ document.querySelectorAll(".lang-switch button").forEach(btn => {
     localStorage.setItem("lang", currentLang);
     render();
   });
+});
+
+/* --------------------------------------------------------------------------
+   Theme (světlý / tmavý režim) — uložené v localStorage.
+   Pokud uživatel preferenci nenastavil, respektuje se systémové nastavení OS.
+   -------------------------------------------------------------------------- */
+
+function applyTheme(theme) {
+  if (theme === "dark" || theme === "light") {
+    document.documentElement.setAttribute("data-theme", theme);
+  } else {
+    document.documentElement.removeAttribute("data-theme");
+  }
+}
+
+function getCurrentTheme() {
+  const saved = localStorage.getItem("theme");
+  if (saved === "dark" || saved === "light") return saved;
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function toggleTheme() {
+  const newTheme = getCurrentTheme() === "dark" ? "light" : "dark";
+  localStorage.setItem("theme", newTheme);
+  applyTheme(newTheme);
+}
+
+// Nastav theme okamžitě při loadu (před prvním renderem, ať není flash)
+applyTheme(localStorage.getItem("theme") || null);
+
+// Naváži listener po DOMContentLoaded (tlačítko ještě nemusí existovat při skriptu inline)
+document.addEventListener("DOMContentLoaded", () => {
+  const btn = document.getElementById("theme-toggle");
+  if (btn) btn.addEventListener("click", toggleTheme);
 });
 
 /* ==========================================================================
@@ -1099,7 +1211,7 @@ function renderMain() {
         const detail = currentLang === "cs" ? f.detail : (f.detailEn || f.detail);
         const when = new Date(f.when).toLocaleString(currentLang === "cs" ? "cs-CZ" : "en-US");
         return `
-          <div class="finding-row">
+          <div class="finding-row ${f.severity}">
             <div>
               <span class="severity ${f.severity}">${t("severity." + f.severity)}</span>
             </div>
@@ -1482,9 +1594,11 @@ async function signIn() {
       "UserAuthenticationMethod.Read.All",  // MFA status
       "MailboxSettings.Read",               // forwarding rules
       "Application.Read.All",               // OAuth apps, app registrations
-      "SecurityEvents.Read.All",            // Defender alerts, incidents, Secure Score
+      "SecurityEvents.Read.All",            // Secure Score
+      "SecurityAlert.Read.All",             // Defender alerts (M365 Defender API)
+      "SecurityIncident.Read.All",          // Defender incidents (M365 Defender API)
       "IdentityRiskEvent.Read.All",         // risk detections
-      "IdentityRiskyUser.Read.All",         // risky users (Identity Protection)
+      "IdentityRiskyUser.Read.All",         // risky users (Identity Protection, P2)
       "DeviceManagementManagedDevices.Read.All", // Intune managed devices
       "Organization.Read.All"               // subscribed SKUs / licenses
     ];
@@ -1592,8 +1706,11 @@ function registerCheck(def) {
 }
 
 // Voláme jako: const data = await graphGet("/auditLogs/signIns?$top=20", token);
-async function graphGet(path, token) {
+// `silent` = neloguj síťové chyby (užitečné pro per-user volání kde 403/404 čekáme)
+async function graphGet(path, token, silent) {
   const url = path.startsWith("http") ? path : GRAPH_BASE + path;
+  // Tichý mode: nemůžeme vypnout síťové log v Console (browser tam píše sám),
+  // ale aspoň nekrákoráme z naší aplikace.
   const res = await fetch(url, {
     headers: { "Authorization": "Bearer " + token, "Accept": "application/json" }
   });
@@ -1602,6 +1719,7 @@ async function graphGet(path, token) {
     const err = new Error("HTTP " + res.status + ": " + txt.slice(0, 200));
     err.status = res.status;
     err.body = txt;
+    err.silent = silent;
     throw err;
   }
   return res.json();
@@ -1863,9 +1981,10 @@ registerCheck({
     );
 
     const findings = [];
+    let skippedCount = 0;
     for (const u of users) {
       try {
-        const data = await graphGet("/users/" + u.id + "/mailFolders/inbox/messageRules", token);
+        const data = await graphGet("/users/" + u.id + "/mailFolders/inbox/messageRules", token, true);
         const rules = data.value || [];
         for (const rule of rules) {
           if (!rule.isEnabled) continue;
@@ -1888,10 +2007,15 @@ registerCheck({
         }
       } catch (e) {
         // Některé účty (sdílené schránky, atd.) nemusí jít načíst — přeskoč
-        if (e.status !== 403 && e.status !== 404) {
+        if (e.status === 403 || e.status === 404) {
+          skippedCount++;
+        } else {
           console.warn("[forwarding-rules] skip user:", u.userPrincipalName, e.message);
         }
       }
+    }
+    if (skippedCount > 0) {
+      console.log("[forwarding-rules] Přeskočeno " + skippedCount + "/" + users.length + " účtů (403/404 — nemají mailbox nebo nemáme přístup).");
     }
     return { findings };
   }
