@@ -19,11 +19,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Školní bezpečnost">
 
-  <!-- Microsoft Authentication Library (MSAL.js) — zajišťuje přihlášení přes Microsoft.
-       Načítáme z jsDelivr (NPM mirror), s fallbacky na unpkg a Microsoft CDN.
-       Tyto mirrory jsou všechny široce dostupné i přes restriktivní firewally. -->
-  <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"
-          onerror="this.onerror=null;var s=document.createElement('script');s.src='https://unpkg.com/@azure/msal-browser@2.38.3/lib/msal-browser.min.js';s.onerror=function(){var s2=document.createElement('script');s2.src='https://alcdn.msftauth.net/browser/2.38.3/js/msal-browser.min.js';document.head.appendChild(s2);};document.head.appendChild(s);"></script>
+  <!-- Auth: vlastní OAuth 2.0 + PKCE implementace, žádná externí závislost.
+       Komunikuje přímo s login.microsoftonline.com (standardní endpoint). -->
+
 
   <!-- Config — vyplň své hodnoty (clientId a tenantId) v souboru config.js -->
   <script src="config.js"></script>
@@ -674,7 +672,7 @@ const translations = {
     "login.button": "Přihlásit se přes Microsoft",
     "login.buttonSignOut": "Odhlásit",
     "login.disabled": "Config ještě není vyplněný — viz NAVOD-ENTRA-APP.md",
-    "auth.configMissing": "Nejdřív vyplň clientId a tenantId v config.js. Viz NAVOD-ENTRA-APP.md.",
+    "auth.configMissing": "Nejdřív vyplň Client ID a Tenant ID v Nastavení (⚙ vpravo nahoře).",
     "auth.loginFailed": "Přihlášení se nezdařilo:",
     "auth.signedInAs": "Přihlášen:",
 
@@ -745,7 +743,7 @@ const translations = {
     "login.button": "Sign in with Microsoft",
     "login.buttonSignOut": "Sign out",
     "login.disabled": "Config not yet filled — see NAVOD-ENTRA-APP.md",
-    "auth.configMissing": "Fill in clientId and tenantId in config.js first. See NAVOD-ENTRA-APP.md.",
+    "auth.configMissing": "Fill in Client ID and Tenant ID in Settings (⚙ top right) first.",
     "auth.loginFailed": "Sign-in failed:",
     "auth.signedInAs": "Signed in:",
 
@@ -1177,22 +1175,34 @@ function exportCsv() {
 }
 
 /* ==========================================================================
-   6) AUTH — MSAL.js integrace
+   6) AUTH — vlastní OAuth 2.0 Authorization Code + PKCE implementace
 
-   Microsoft Authentication Library (MSAL) zajišťuje přihlášení
-   přes Microsoft účet. Používáme popup variantu — přihlašovací okno
-   se otevře v novém okně, uživatel se přihlásí, okno se zavře,
-   a my máme v ruce access token pro Microsoft Graph API.
+   Komunikujeme přímo s https://login.microsoftonline.com (standardní
+   Microsoft Entra endpoint). Nepotřebujeme MSAL knihovnu ani jiné
+   externí JS dependency.
+
+   Flow:
+   1. Uživatel klikne "Přihlásit" → vygenerujeme PKCE verifier+challenge,
+      uložíme do sessionStorage, přesměrujeme na Microsoft authorize URL.
+   2. Microsoft přesměruje zpět s ?code=...
+   3. Při načtení stránky zjistíme kód v URL, vyměníme ho za access token
+      (POST na /token endpoint) a uložíme do sessionStorage.
+   4. Token používáme pro Graph API volání.
 
    Bezpečnost:
-   - Token je uložen v sessionStorage (smaže se zavřením záložky)
-   - Používáme "delegated permissions" — aplikace dělá jen to,
-     na co má právo přihlášený uživatel
-   - Žádné heslo nikdy neprochází přes naši aplikaci
+   - PKCE (RFC 7636) chrání před interception útoky.
+   - State parametr chrání před CSRF.
+   - Token v sessionStorage (smaže se zavřením záložky).
+   - Žádné heslo neprochází naší aplikací.
    ========================================================================== */
 
-let msalInstance = null;
+const AUTH_TOKEN_KEY = "auth.tokens";
+const AUTH_PKCE_KEY = "auth.pkce_verifier";
+const AUTH_STATE_KEY = "auth.state";
+const AUTH_TENANT_KEY = "auth.last_tenant";
+
 let currentAccount = null;
+let currentTokens = null;
 
 /* --------------------------------------------------------------------------
    Konfigurace — žije v localStorage prohlížeče.
@@ -1254,119 +1264,264 @@ function getActiveTenant() {
   return tenants.find(t => t.id === activeTenantId) || tenants[0];
 }
 
+// ---- PKCE helpers (RFC 7636) ----
+
+function authRandStr(len) {
+  const arr = new Uint8Array(len);
+  crypto.getRandomValues(arr);
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+  return Array.from(arr).map(b => chars[b % chars.length]).join("");
+}
+
+async function authSha256B64Url(s) {
+  const data = new TextEncoder().encode(s);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  let bin = "";
+  new Uint8Array(hash).forEach(b => bin += String.fromCharCode(b));
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function authParseJwt(token) {
+  try {
+    const part = token.split(".")[1];
+    const padded = part.replace(/-/g, "+").replace(/_/g, "/");
+    const json = atob(padded + "=".repeat((4 - padded.length % 4) % 4));
+    return JSON.parse(decodeURIComponent(escape(json)));
+  } catch (e) {
+    return null;
+  }
+}
+
+function authRedirectUri() {
+  return window.location.origin + window.location.pathname;
+}
+
+function authIsTokenExpired(tokens) {
+  if (!tokens || !tokens.expires_at) return true;
+  return Date.now() >= tokens.expires_at - 60000; // 1 min buffer
+}
+
+function authLoadTokens() {
+  try {
+    const raw = sessionStorage.getItem(AUTH_TOKEN_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+
+function authSaveTokens(tokens) {
+  sessionStorage.setItem(AUTH_TOKEN_KEY, JSON.stringify(tokens));
+}
+
+function authClearTokens() {
+  sessionStorage.removeItem(AUTH_TOKEN_KEY);
+  sessionStorage.removeItem(AUTH_PKCE_KEY);
+  sessionStorage.removeItem(AUTH_STATE_KEY);
+}
+
+// ---- Hlavní auth funkce ----
+
 async function initAuth() {
   if (!isConfigFilled()) {
     console.log("[auth] Config není vyplněn — přihlášení zatím neaktivní.");
     return;
   }
 
-  if (typeof msal === "undefined") {
-    console.error("[auth] MSAL knihovna se nenačetla. Zkontroluj připojení k internetu.");
+  // 1) Po návratu z Microsoftu zpracuj ?code=... v URL
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.has("code")) {
+    await authHandleRedirect(urlParams);
+    // Vyčisti URL od OAuth parametrů
+    window.history.replaceState({}, "", window.location.pathname);
+  } else if (urlParams.has("error")) {
+    const err = urlParams.get("error");
+    const desc = urlParams.get("error_description") || "";
+    console.error("[auth] OAuth chyba:", err, desc);
+    alert(t("auth.loginFailed") + "\n\n" + err + (desc ? "\n" + decodeURIComponent(desc.replace(/\+/g, " ")) : ""));
+    window.history.replaceState({}, "", window.location.pathname);
+  } else {
+    // 2) Jinak zkus načíst existující tokeny ze sessionStorage
+    const stored = authLoadTokens();
+    if (stored && !authIsTokenExpired(stored)) {
+      currentTokens = stored;
+      currentAccount = authParseJwt(stored.id_token);
+      console.log("[auth] Obnoven token z předchozí session pro:", currentAccount?.name);
+      // Obnov aktivní tenant
+      const lastTenant = sessionStorage.getItem(AUTH_TENANT_KEY);
+      if (lastTenant) activeTenantId = lastTenant;
+    } else if (stored) {
+      console.log("[auth] Stored token expiroval, mazu.");
+      authClearTokens();
+    }
+  }
+}
+
+async function authHandleRedirect(params) {
+  const code = params.get("code");
+  const state = params.get("state");
+  const storedState = sessionStorage.getItem(AUTH_STATE_KEY);
+
+  if (state !== storedState) {
+    console.error("[auth] State mismatch — možný CSRF útok nebo expirovaná session.");
+    authClearTokens();
+    alert("Přihlášení selhalo: neplatný stav (state). Zkuste to znovu.");
+    return;
+  }
+
+  const verifier = sessionStorage.getItem(AUTH_PKCE_KEY);
+  if (!verifier) {
+    console.error("[auth] PKCE verifier chybí.");
+    authClearTokens();
     return;
   }
 
   const cfg = getEffectiveConfig();
   const tenant = getActiveTenant();
-  const msalConfig = {
-    auth: {
-      clientId: cfg.clientId,
-      // Authority cílí na konkrétní tenant — při přepnutí tenantu znovu
-      // inicializujeme MSAL s jiným authority.
-      authority: "https://login.microsoftonline.com/" + tenant.id,
-      redirectUri: window.location.origin + window.location.pathname
-    },
-    cache: {
-      cacheLocation: "sessionStorage", // bezpečnější než localStorage
-      storeAuthStateInCookie: false
+  if (!tenant) {
+    console.error("[auth] Žádný aktivní tenant.");
+    return;
+  }
+
+  const body = new URLSearchParams({
+    client_id: cfg.clientId,
+    grant_type: "authorization_code",
+    code: code,
+    redirect_uri: authRedirectUri(),
+    code_verifier: verifier
+  });
+
+  try {
+    const res = await fetch("https://login.microsoftonline.com/" + tenant.id + "/oauth2/v2.0/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[auth] Token exchange selhal:", res.status, errText);
+      try {
+        const errObj = JSON.parse(errText);
+        alert(t("auth.loginFailed") + "\n\n" + errObj.error + "\n" + errObj.error_description);
+      } catch (e) {
+        alert(t("auth.loginFailed") + "\n\nHTTP " + res.status);
+      }
+      return;
     }
-  };
 
-  msalInstance = new msal.PublicClientApplication(msalConfig);
-  await msalInstance.initialize();
-
-  // Pokud máme po předchozím přihlášení nějaký účet v cache, použij ho
-  const accounts = msalInstance.getAllAccounts();
-  if (accounts.length > 0) {
-    currentAccount = accounts[0];
-    msalInstance.setActiveAccount(currentAccount);
+    const tokens = await res.json();
+    tokens.expires_at = Date.now() + ((tokens.expires_in || 3600) * 1000);
+    authSaveTokens(tokens);
+    currentTokens = tokens;
+    currentAccount = authParseJwt(tokens.id_token);
+    console.log("[auth] Úspěšně přihlášen:", currentAccount?.name);
+  } catch (e) {
+    console.error("[auth] Síťová chyba při token exchange:", e);
+    alert(t("auth.loginFailed") + "\n\n" + e.message);
+  } finally {
+    // Vyčisti PKCE a state, už nejsou potřeba
+    sessionStorage.removeItem(AUTH_PKCE_KEY);
+    sessionStorage.removeItem(AUTH_STATE_KEY);
   }
 }
 
 async function signIn() {
-  if (!msalInstance) {
+  if (!isConfigFilled()) {
     alert(t("auth.configMissing"));
     return;
   }
+
+  const cfg = getEffectiveConfig();
+  const tenant = getActiveTenant();
+  if (!tenant) {
+    alert(t("auth.configMissing"));
+    return;
+  }
+
   try {
-    const response = await msalInstance.loginPopup({
-      scopes: getEffectiveConfig().scopes || ["User.Read"],
-      prompt: "select_account"
-    });
-    currentAccount = response.account;
-    msalInstance.setActiveAccount(currentAccount);
-    render();
+    const verifier = authRandStr(64);
+    const challenge = await authSha256B64Url(verifier);
+    const state = authRandStr(32);
+
+    sessionStorage.setItem(AUTH_PKCE_KEY, verifier);
+    sessionStorage.setItem(AUTH_STATE_KEY, state);
+    sessionStorage.setItem(AUTH_TENANT_KEY, tenant.id);
+
+    const scopes = (cfg.scopes || ["User.Read"]).concat(["openid", "profile"]);
+
+    const url = new URL("https://login.microsoftonline.com/" + tenant.id + "/oauth2/v2.0/authorize");
+    url.searchParams.set("client_id", cfg.clientId);
+    url.searchParams.set("response_type", "code");
+    url.searchParams.set("redirect_uri", authRedirectUri());
+    url.searchParams.set("scope", scopes.join(" "));
+    url.searchParams.set("code_challenge", challenge);
+    url.searchParams.set("code_challenge_method", "S256");
+    url.searchParams.set("state", state);
+    url.searchParams.set("prompt", "select_account");
+    url.searchParams.set("response_mode", "query");
+
+    console.log("[auth] Přesměrovávám na Microsoft login...");
+    window.location.href = url.toString();
   } catch (e) {
-    console.error("[auth] Přihlášení selhalo:", e);
+    console.error("[auth] Příprava přihlášení selhala:", e);
     alert(t("auth.loginFailed") + "\n\n" + e.message);
   }
 }
 
-async function signOut() {
-  if (!msalInstance || !currentAccount) return;
-  await msalInstance.logoutPopup({ account: currentAccount });
+function signOut() {
+  const tenant = getActiveTenant();
+  authClearTokens();
+  sessionStorage.removeItem(AUTH_TENANT_KEY);
   currentAccount = null;
-  render();
+  currentTokens = null;
+
+  if (tenant) {
+    // Přesměruj na Microsoft logout, který nás pak vrátí na náš dashboard
+    const url = "https://login.microsoftonline.com/" + tenant.id +
+                "/oauth2/v2.0/logout?post_logout_redirect_uri=" +
+                encodeURIComponent(authRedirectUri());
+    window.location.href = url;
+  } else {
+    render();
+  }
 }
 
-// Přepnout aktivní tenant — odhlásit současný, znovu inicializovat MSAL
-// s jiným authority a znovu se přihlásit pod novým tenantem.
+// Přepnout aktivní tenant — vyčistí session a otevře přihlášení do nového
 async function switchTenant(newTenantId) {
   const tenants = getManagedTenants();
   if (!tenants.find(t => t.id === newTenantId)) return;
 
-  if (msalInstance && currentAccount) {
-    try {
-      await msalInstance.logoutPopup({ account: currentAccount });
-    } catch (e) {
-      // Pokud uživatel zruší logout, neměň tenant
-      console.warn("[auth] Přepnutí tenantu zrušeno:", e.message);
-      return;
-    }
-  }
-
+  // Lokální logout (bez redirectu na Microsoft logout)
+  authClearTokens();
   currentAccount = null;
-  msalInstance = null;
+  currentTokens = null;
   activeTenantId = newTenantId;
-  await initAuth();
+  sessionStorage.setItem(AUTH_TENANT_KEY, newTenantId);
   render();
+
+  // Automaticky vyvolej přihlášení do nového tenantu
+  if (confirm("Tenant přepnut na: " + (tenants.find(t => t.id === newTenantId)?.name) + ".\n\nPřihlásit se teď?")) {
+    await signIn();
+  }
 }
 
 function isAuthenticated() {
-  return currentAccount !== null;
+  return currentAccount !== null && currentTokens !== null && !authIsTokenExpired(currentTokens);
 }
 
 function getAccountName() {
   if (!currentAccount) return "";
-  return currentAccount.name || currentAccount.username || "";
+  return currentAccount.name || currentAccount.preferred_username || currentAccount.upn || currentAccount.email || "";
 }
 
-// Získá access token pro volání Microsoft Graph (zatím nevyužito — přijde ve fázi 3)
+// Vrátí access token pro Microsoft Graph volání. Pokud expiroval, vrátí null
+// (nebo později implementujeme silent refresh přes hidden iframe).
 async function getAccessToken() {
-  if (!msalInstance || !currentAccount) return null;
-  const scopes = getEffectiveConfig().scopes || ["User.Read"];
-  try {
-    const result = await msalInstance.acquireTokenSilent({
-      scopes: scopes,
-      account: currentAccount
-    });
-    return result.accessToken;
-  } catch (e) {
-    if (e instanceof msal.InteractionRequiredAuthError) {
-      const result = await msalInstance.acquireTokenPopup({ scopes });
-      return result.accessToken;
-    }
-    throw e;
+  if (!currentTokens) return null;
+  if (authIsTokenExpired(currentTokens)) {
+    console.warn("[auth] Token expiroval, je potřeba nové přihlášení.");
+    return null;
   }
+  return currentTokens.access_token;
 }
 
 /* ==========================================================================
@@ -1529,9 +1684,10 @@ function saveSettings() {
   });
 
   closeSettings();
-  // Resetuj msal stav a překresli s novým configem
-  msalInstance = null;
+  // Resetuj auth stav a překresli s novým configem
+  authClearTokens();
   currentAccount = null;
+  currentTokens = null;
   activeTenantId = null;
   initAuth().then(() => render());
 }
@@ -1540,8 +1696,9 @@ function clearAllConfig() {
   if (!confirm(t("settings.confirmClear"))) return;
   localStorage.removeItem(LS_CONFIG_KEY);
   closeSettings();
-  msalInstance = null;
+  authClearTokens();
   currentAccount = null;
+  currentTokens = null;
   activeTenantId = null;
   // Otevři modal znova s prázdnými poli
   setTimeout(openSettings, 50);

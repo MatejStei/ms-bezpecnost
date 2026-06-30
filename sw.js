@@ -14,7 +14,7 @@
    Strategie: cache-first pro statické soubory, network-only pro Graph API.
    ============================================================================ */
 
-const CACHE_VERSION = "v1.0.0";
+const CACHE_VERSION = "v2.0.0";
 const CACHE_NAME = "skolni-bezpecnost-" + CACHE_VERSION;
 
 // Soubory, které tvoří "kostru" aplikace — bez nich app nefunguje
